@@ -1,0 +1,559 @@
+// 中小企业财务管理系统 - 数据模型
+// 金额一律 Decimal(18,2);主键 Int 自增;软删除仅用于档案类表
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== 系统管理 ====================
+
+model User {
+  id           Int          @id @default(autoincrement())
+  username     String       @unique
+  passwordHash String
+  realName     String
+  phone        String?
+  email        String?
+  status       Int          @default(1) // 1 启用 0 禁用
+  isSuper      Boolean      @default(false)
+  deptId       Int?         // 所属部门(报销审批路由用)
+  dept         Department?  @relation(fields: [deptId], references: [id])
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  userRoles   UserRole[]
+  userTenants UserTenant[]
+  vouchersCreated  Voucher[]      @relation("voucherCreator")
+  vouchersAudited  Voucher[]      @relation("voucherAuditor")
+  claimsSubmitted  ExpenseClaim[] @relation("claimApplicant")
+}
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique // ADMIN / CFO / ACCOUNTANT / CASHIER / EMPLOYEE / BOSS
+  name        String
+  permissions String[] // 权限码集合
+  remark      String?
+  users       UserRole[]
+}
+
+model UserRole {
+  userId Int
+  roleId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+model UserTenant {
+  userId    Int
+  tenantId  Int
+  isDefault Boolean @default(false)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([userId, tenantId])
+}
+
+model OperationLog {
+  id        BigInt   @id @default(autoincrement())
+  userId    Int?
+  username  String?
+  action    String // 动作描述或 HTTP 方法
+  method    String
+  path      String
+  targetId  String?
+  detail    Json? // 关键参数(截断)
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
+}
+
+// ==================== 账套与期间 ====================
+
+model Tenant {
+  id         Int      @id @default(autoincrement())
+  name       String
+  taxNo      String?
+  address    String?
+  legalRep   String?
+  startYear  Int // 启用会计年度
+  startMonth Int // 启用期间 1-12
+  status     Int      @default(0) // 0 未启用(期初录入中) 1 已启用
+  params     Json? // {gmExpenseThreshold:5000, defaultTaxRate:0.13 ...}
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  periods    Period[]
+  subjects   Subject[]
+  partners   Partner[]
+  vouchers   Voucher[]
+  userTenants UserTenant[]
+}
+
+model Period {
+  id       Int  @id @default(autoincrement())
+  tenantId Int
+  year     Int
+  month    Int
+  status   Int  @default(1) // 0 未开始 1 进行中 2 已结账
+  closedBy Int?
+  closedAt DateTime?
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  vouchers Voucher[]
+
+  @@unique([tenantId, year, month])
+  @@index([tenantId, status])
+}
+
+// ==================== 基础档案 ====================
+
+model Subject {
+  id           Int       @id @default(autoincrement())
+  tenantId     Int
+  code         String // 4-2-2 分级编码
+  name         String
+  parentId     Int?
+  category     Int // 1资产 2负债 3权益 4成本 5损益-收入 6损益-费用
+  direction    String // D 借 C 贷(余额自然方向)
+  isLeaf       Boolean   @default(true)
+  assist       Json? // {"partner":true,"department":false,"project":false}
+  cashFlowType String? // 现金流量项目代码(现金/银行科目)
+  status       Int       @default(1) // 1 启用 0 停用
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  entries        VoucherEntry[]
+  initialBalance InitialBalance[]
+  bankAccounts   BankAccount[]
+  fixedAssets    FixedAsset[]
+  arapSettleBills ArapBill[] @relation("billSettleSubject")
+
+  @@unique([tenantId, code])
+  @@index([tenantId, parentId])
+}
+
+model Partner {
+  id          Int       @id @default(autoincrement())
+  tenantId    Int
+  code        String
+  name        String
+  type        Int // 1 客户 2 供应商
+  taxNo       String?
+  bankName    String?
+  bankAccount String?
+  contact     String?
+  phone       String?
+  creditDays  Int       @default(0)
+  creditLimit Decimal?  @db.Decimal(18, 2)
+  status      Int       @default(1)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  entries    VoucherEntry[]
+  bills      ArapBill[]
+  invoices   Invoice[]
+  initBalances InitialBalance[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, type])
+}
+
+model Department {
+  id     Int   @id @default(autoincrement())
+  tenantId Int
+  code   String
+  name   String
+  status Int   @default(1)
+
+  claims      ExpenseClaim[]
+  fixedAssets FixedAsset[]
+  employees   Employee[] @relation("empDept")
+  users       User[]
+
+  @@unique([tenantId, code])
+}
+
+model Project {
+  id     Int   @id @default(autoincrement())
+  tenantId Int
+  code   String
+  name   String
+  status Int   @default(1)
+
+  claims ExpenseClaim[]
+
+  @@unique([tenantId, code])
+}
+
+model Employee {
+  id       Int    @id @default(autoincrement())
+  tenantId Int
+  code     String
+  name     String
+  deptId   Int?
+  position String?
+  phone    String?
+  status   Int    @default(1)
+
+  dept Department? @relation("empDept", fields: [deptId], references: [id])
+
+  @@unique([tenantId, code])
+}
+
+model SummaryLib {
+  id       Int    @id @default(autoincrement())
+  tenantId Int
+  text     String
+  usageCount Int  @default(0)
+
+  @@index([tenantId])
+}
+
+// ==================== 期初余额 ====================
+
+model InitialBalance {
+  id           Int      @id @default(autoincrement())
+  tenantId     Int
+  subjectId    Int
+  partnerId    Int?
+  departmentId Int?
+  projectId    Int?
+  direction    String // D / C
+  amount       Decimal  @db.Decimal(18, 2)
+  createdAt    DateTime @default(now())
+
+  subject Subject  @relation(fields: [subjectId], references: [id])
+  partner Partner? @relation(fields: [partnerId], references: [id])
+
+  @@index([tenantId, subjectId])
+}
+
+// ==================== 凭证 ====================
+
+model Voucher {
+  id              Int       @id @default(autoincrement())
+  tenantId        Int
+  periodId        Int
+  word            String    @default("记") // 记/收/付/转
+  no              Int // 月内连续号
+  date            DateTime  @db.Date
+  status          Int       @default(0) // 0草稿 1待审核 2已记账 3作废
+  totalDebit      Decimal   @db.Decimal(18, 2)
+  totalCredit     Decimal   @db.Decimal(18, 2)
+  attachmentCount Int       @default(0)
+  memo            String?
+  sourceType      Int       @default(0) // 0手工 1报销 2应收应付 3折旧 4结转损益 5红冲 6固定资产清理
+  sourceId        Int?
+  redForVoucherId Int? // 本凭证为对该凭证的红冲
+  rejectReason    String?
+  createdBy       Int
+  auditedBy       Int?
+  auditedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id])
+  period Period         @relation(fields: [periodId], references: [id])
+  creator User           @relation("voucherCreator", fields: [createdBy], references: [id])
+  auditor User?          @relation("voucherAuditor", fields: [auditedBy], references: [id])
+  entries VoucherEntry[]
+  attachments Attachment[]
+  arapBills     ArapBill[]
+  invoices      Invoice[]
+  paidClaims    ExpenseClaim[] @relation("claimPayVoucher")
+  depRecords    DepreciationRecord[]
+  acquiredAssets FixedAsset[] @relation("assetAcquireVoucher")
+  disposedAssets  FixedAsset[] @relation("assetDisposeDeclared")
+
+  @@unique([tenantId, periodId, word, no])
+  @@index([tenantId, date])
+  @@index([status])
+}
+
+model VoucherEntry {
+  id           Int      @id @default(autoincrement())
+  voucherId    Int
+  lineNo       Int
+  summary      String   @db.VarChar(200)
+  subjectId    Int
+  debit        Decimal  @default(0) @db.Decimal(18, 2)
+  credit       Decimal  @default(0) @db.Decimal(18, 2)
+  partnerId    Int?
+  departmentId Int?
+  projectId    Int?
+  settleType   String? // 结算方式:现金/转账/银承/商承...
+  settleNo     String?
+
+  voucher Voucher  @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  subject Subject  @relation(fields: [subjectId], references: [id])
+  partner Partner? @relation(fields: [partnerId], references: [id])
+
+  statementLines StatementLine[]
+
+  @@index([voucherId])
+  @@index([subjectId])
+}
+
+model Attachment {
+  id          Int      @id @default(autoincrement())
+  ownerType   String // voucher / claim
+  ownerId     Int
+  fileName    String // 原始文件名
+  filePath    String // 存储路径
+  fileSize    Int
+  contentType String?
+  uploadedBy  Int
+  createdAt   DateTime @default(now())
+
+  voucher Voucher? @relation(fields: [ownerId], references: [id], onDelete: Cascade, map: "fk_att_voucher")
+
+  @@index([ownerType, ownerId])
+}
+
+// ==================== 应收应付 ====================
+
+model ArapBill {
+  id            Int      @id @default(autoincrement())
+  tenantId      Int
+  type          Int // 1应收单 2收款单 3应付单 4付款单
+  billNo        String
+  partnerId     Int
+  date          DateTime @db.Date
+  dueDate       DateTime? @db.Date
+  amount        Decimal  @db.Decimal(18, 2)
+  writtenOff    Decimal  @default(0) @db.Decimal(18, 2)
+  memo          String?
+  settleSubjectId Int? // 收付款时对应的资金科目(1001/1002xxx)
+  invoiceId     Int?
+  voucherId     Int? // 生成的凭证
+  status        Int      @default(1)
+  createdBy     Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  partner      Partner  @relation(fields: [partnerId], references: [id])
+  settleSubject Subject? @relation("billSettleSubject", fields: [settleSubjectId], references: [id])
+  voucher      Voucher? @relation(fields: [voucherId], references: [id])
+
+  @@unique([tenantId, billNo])
+  @@index([tenantId, type, partnerId])
+}
+
+model ArapWriteoff {
+  id          Int      @id @default(autoincrement())
+  tenantId    Int
+  openBillId  Int // 应收单/应付单
+  settleBillId Int // 收款单/付款单
+  amount      Decimal  @db.Decimal(18, 2)
+  createdBy   Int
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId, openBillId])
+}
+
+// ==================== 发票台账 ====================
+
+model Invoice {
+  id         Int      @id @default(autoincrement())
+  tenantId   Int
+  io         Int // 1 销项 2 进项
+  invoiceNo  String
+  partnerId  Int?
+  title      String? // 抬头(未建档对方)
+  itemName   String?
+  date       DateTime @db.Date
+  amount     Decimal  @db.Decimal(18, 2) // 不含税金额
+  taxRate    Decimal  @default(0.13) @db.Decimal(6, 4)
+  taxAmount  Decimal  @db.Decimal(18, 2)
+  total      Decimal  @db.Decimal(18, 2) // 价税合计
+  status     Int      @default(1) // 1正常 2作废 3红冲
+  arapBillId Int?
+  voucherId  Int?
+  createdBy  Int
+  createdAt  DateTime @default(now())
+
+  partner Partner? @relation(fields: [partnerId], references: [id])
+  voucher Voucher? @relation(fields: [voucherId], references: [id])
+
+  @@unique([tenantId, invoiceNo])
+  @@index([tenantId, io, date])
+}
+
+// ==================== 资金管理 ====================
+
+model BankAccount {
+  id             Int      @id @default(autoincrement())
+  tenantId       Int
+  name           String // 工行基本户
+  bankName       String
+  accountNo      String
+  subjectId      Int // 对应银行存款二级科目
+  openingBalance Decimal  @default(0) @db.Decimal(18, 2)
+  status         Int      @default(1)
+
+  subject        Subject         @relation(fields: [subjectId], references: [id])
+  statementLines StatementLine[]
+
+  @@index([tenantId])
+}
+
+model StatementLine {
+  id             Int      @id @default(autoincrement())
+  tenantId       Int
+  accountId      Int
+  date           DateTime @db.Date
+  amount         Decimal  @db.Decimal(18, 2) // 收入为正 支出为负
+  memo           String?
+  matchedEntryId Int? // 勾兑到的凭证分录
+  matchedAt      DateTime?
+  importedBy     Int
+  createdAt      DateTime @default(now())
+
+  account      BankAccount   @relation(fields: [accountId], references: [id])
+  matchedEntry VoucherEntry? @relation(fields: [matchedEntryId], references: [id])
+
+  @@index([tenantId, accountId, matchedEntryId])
+}
+
+// ==================== 费用报销 ====================
+
+model ExpenseClaim {
+  id           Int       @id @default(autoincrement())
+  tenantId     Int
+  claimNo      String
+  applicantId  Int // 提交人 userId
+  deptId       Int?
+  projectId    Int?
+  title        String // 事由
+  total        Decimal   @db.Decimal(18, 2)
+  status       Int       @default(0) // 0草稿 1待部门审批 2待总经理审批 3待财务复核 4已复核待付款 5已付款 6已驳回 7已撤回
+  currentNode  String?
+  rejectReason String?
+  payVoucherId Int?
+  paidAt       DateTime?
+  createdBy    Int
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  items    ExpenseClaimItem[]
+  approvals ApprovalRecord[]
+
+  applicant User       @relation("claimApplicant", fields: [applicantId], references: [id])
+  dept      Department? @relation(fields: [deptId], references: [id])
+  project   Project?    @relation(fields: [projectId], references: [id])
+  payVoucher Voucher?   @relation("claimPayVoucher", fields: [payVoucherId], references: [id])
+
+  @@unique([tenantId, claimNo])
+  @@index([tenantId, status, applicantId])
+}
+
+model ExpenseClaimItem {
+  id           Int      @id @default(autoincrement())
+  claimId      Int
+  expenseType  String // 差旅费/办公费/业务招待费/交通费/通讯费/培训费/其他
+  occurDate    DateTime @db.Date
+  amount       Decimal  @db.Decimal(18, 2)   // 本次报销金额
+  invoiceCount Int      @default(0)         // 票据张数(R17 必填 ≥1)
+  invoiceTotal Decimal? @db.Decimal(18, 2)  // 票面金额合计(R18 报销额 ≤ 票面额)
+  remark       String?
+
+  claim ExpenseClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+}
+
+model ApprovalRecord {
+  id           Int      @id @default(autoincrement())
+  claimId      Int
+  approverId   Int
+  approverName String
+  action       String // submit/approve/reject/review/pay/withdraw
+  opinion      String?
+  createdAt    DateTime @default(now())
+
+  claim ExpenseClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId])
+}
+
+// ==================== 固定资产 ====================
+
+model FixedAsset {
+  id                 Int       @id @default(autoincrement())
+  tenantId           Int
+  cardNo             String
+  name               String
+  category           String // 电子设备/运输工具/办公家具/机器设备/房屋建筑物
+  acquiredDate       DateTime  @db.Date
+  originalValue      Decimal   @db.Decimal(18, 2)
+  salvageRate        Decimal   @default(0.05) @db.Decimal(6, 4)
+  lifeMonths         Int
+  depMethod          String    @default("straight") // 平均年限法
+  useDeptId          Int?
+  location           String?
+  depExpenseSubjectId Int // 折旧费用科目(管理费用/销售费用/制造费用下折旧明细科目)
+  status             Int       @default(1) // 1在用 2清理中 3已处置
+  disposeDate        DateTime? @db.Date
+  disposeAmount      Decimal?  @db.Decimal(18, 2)
+  disposeType        String? // 出售/报废
+  disposeVoucherId   Int?
+  acquireVoucherId   Int?
+  createdBy          Int
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  useDept          Department? @relation(fields: [useDeptId], references: [id])
+  depExpenseSubject Subject    @relation(fields: [depExpenseSubjectId], references: [id])
+  acquireVoucher   Voucher?    @relation("assetAcquireVoucher", fields: [acquireVoucherId], references: [id])
+  disposeVoucher   Voucher?    @relation("assetDisposeDeclared", fields: [disposeVoucherId], references: [id])
+  depRecords DepreciationRecord[]
+
+  @@unique([tenantId, cardNo])
+  @@index([tenantId, status])
+}
+
+model DepreciationRecord {
+  id             Int      @id @default(autoincrement())
+  tenantId       Int
+  periodId       Int
+  assetId        Int
+  depAmount      Decimal  @db.Decimal(18, 2)
+  accumulatedDep Decimal  @db.Decimal(18, 2) // 含本期的累计折旧
+  voucherId      Int?
+  createdAt      DateTime @default(now())
+
+  asset FixedAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  voucher Voucher? @relation(fields: [voucherId], references: [id])
+
+  @@unique([periodId, assetId])
+  @@index([tenantId, periodId])
+}
+
+// ==================== 报表公式配置 ====================
+
+model ReportFormula {
+  id        Int    @id @default(autoincrement())
+  reportCode String // BS 资产负债表 / IS 利润表
+  rowKey    String
+  rowName   String
+  indent    Int    @default(0) // 缩进级别
+  bold      Boolean @default(false)
+  expr      Json // 公式表达式
+  sort      Int
+
+  @@unique([reportCode, rowKey])
+}

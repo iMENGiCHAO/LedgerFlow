@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>login seeder</title></head>
+<body>
+<script>
+  // 调试模式 seed: 注入 token + 跳目标页
+  const p = new URLSearchParams(location.search)
+  if (p.get('token')) {
+    localStorage.setItem('fm_token', p.get('token'))
+    localStorage.setItem('fm_user', p.get('user'))
+    localStorage.setItem('fm_tenants', p.get('tenants'))
+    localStorage.setItem('fm_tenant_id', p.get('tid'))
+    const goto = p.get('goto') || '/'
+    setTimeout(() => { location.href = goto }, 100)
+    document.body.innerText = '已注入,跳转中: ' + goto
+  } else {
+    document.body.innerText = '需要 ?token=...&user=...&tenants=...&tid=...&goto=...'
+  }
+</script>
+</body>
+</html>
