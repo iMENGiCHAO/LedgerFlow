@@ -115,7 +115,7 @@ bash scripts/dev.sh
 bash scripts/start-prod.sh
 ```
 
-浏览器打开 **http://localhost:5173**。
+浏览器打开 [http://localhost:5173](http://localhost:5173) 即可使用。
 
 ### 演示账号
 
