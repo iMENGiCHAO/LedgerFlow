@@ -17,8 +17,8 @@
               <span>财</span>
             </div>
             <div>
-              <div class="brand-name">智云 · 财务</div>
-              <div class="brand-tag">SME Financial Cloud</div>
+              <div class="brand-name">LedgerFlow</div>
+              <div class="brand-tag">SME Finance Suite</div>
             </div>
           </div>
 
@@ -76,7 +76,7 @@
           <div class="mobile-brand">
             <div class="brand-mark mobile-mark"><span>财</span></div>
             <h1 class="mobile-title">智云 · 财务</h1>
-            <p class="mobile-sub">中小企业财务管理系统</p>
+            <p class="mobile-sub">LedgerFlow · 中小企业财务管理系统</p>
           </div>
 
           <div class="form-head">

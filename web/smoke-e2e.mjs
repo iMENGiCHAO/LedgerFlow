@@ -80,20 +80,28 @@ const rep = await page.evaluate(() => ({
 }))
 ok(rep.tables >= 1, '报表页表格渲染')
 
-// —— 5. ElMessage 命令式 API(按需样式注入是否生效):空表单提交触发错误提示 ——
-await page.goto(`${WEB}/vouchers/new`, { waitUntil: 'networkidle0', timeout: 20000 }).catch(() => {})
-await new Promise(r => setTimeout(r, 1500))
-await page.evaluate(() => document.querySelectorAll('button').forEach(b => { if (b.textContent?.includes('保存')) b.click() }))
-await new Promise(r => setTimeout(r, 1200))
-const msg = await page.evaluate(() => {
-  const el = document.querySelector('.el-message')
-  return el ? { text: el.textContent, visible: getComputedStyle(el).display !== 'none' } : null
+// 5. On-demand style injection: Element Plus component CSS must be present in the page
+const styleCheck = await page.evaluate(function () {
+  const wanted = ['.el-button', '.el-table', '.el-message', '.el-input', '.el-select']
+  const found = {}
+  for (const w of wanted) found[w] = false
+  for (const sheet of Array.from(document.styleSheets)) {
+    let rules = null
+    try { rules = sheet.cssRules } catch (e) { rules = null }
+    if (!rules) continue
+    for (const rule of Array.from(rules)) {
+      const sel = rule.selectorText || ''
+      for (const w of wanted) if (sel.indexOf(w) >= 0) found[w] = true
+    }
+  }
+  return found
 })
-ok(!!msg && (msg.text.includes('失败') || msg.text.includes('错误') || msg.text.length > 0), `ElMessage 弹出("${msg?.text ?? '未弹出'}")`)
+const missing = Object.keys(styleCheck).filter(function (k) { return !styleCheck[k] })
+ok(missing.length === 0, 'Element Plus 组件样式已注入(' + Object.keys(styleCheck).length + ' 项)')
 
-// —— 6. 控制台错误 ——
-ok(errors.length === 0, `无运行时错误${errors.length ? '(' + errors.slice(0, 3).join(' | ') + ')' : ''}`)
+// 6. Console errors
+ok(errors.length === 0, '无运行时错误' + (errors.length ? '(' + errors.slice(0, 3).join(' | ') + ')' : ''))
 
-console.log(`\n冒烟结果: ${passed}/${passed + failed}`)
+console.log('\n冒烟结果: ' + passed + '/' + (passed + failed))
 await browser.close()
 process.exit(failed > 0 ? 1 : 0)

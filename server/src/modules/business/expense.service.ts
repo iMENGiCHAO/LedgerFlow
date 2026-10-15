@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
 import { VoucherService } from '../ledger/voucher.service';
 import { DashboardService } from './dashboard.service';
+import { getBusinessToday, toBizDateStr } from '../../common/business-time';
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
 
@@ -140,7 +141,8 @@ export class ExpenseService {
       }
       if (it.occurDate) {
         const occ = new Date(it.occurDate)
-        const today = new Date()
+        // 业务时钟:以账套当前期间为"今天"(演示账套冻结在历史期间时,报销时效仍按账套口径校验)
+        const today = await getBusinessToday(this.prisma, tenantId)
         const days = (today.getTime() - occ.getTime()) / 86400000
         if (days > 180) {
           throw new BadRequestException(
@@ -204,7 +206,9 @@ export class ExpenseService {
         }
         const d = new Date(it.occurDate);
         if (Number.isNaN(d.getTime())) throw new BadRequestException(`第 ${i + 1} 行发生日期无效`);
-        const days = (Date.now() - d.getTime()) / 86400000;
+        // 业务时钟:与提交口径一致,按账套当前期间校验时效
+        const bizToday = await getBusinessToday(this.prisma, tenantId);
+        const days = (bizToday.getTime() - d.getTime()) / 86400000;
         if (days > 180) throw new BadRequestException(`第 ${i + 1} 行发生日期已超过 180 天,远超财务报销时效`);
       }
       patch.total = r2(dto.items.reduce((a, i) => a + Number(i.amount || 0), 0));
@@ -387,7 +391,8 @@ export class ExpenseService {
       user.uid,
       {
         word: '付',
-        date: dto.date || new Date().toISOString().slice(0, 10),
+        // 默认入账日期取账套当前期间(期间锁安全),显式传参则尊重调用方
+        date: dto.date || toBizDateStr(await getBusinessToday(this.prisma, tenantId)),
         memo: `费用报销-${c.title}`.slice(0, 120),
         entries,
       },

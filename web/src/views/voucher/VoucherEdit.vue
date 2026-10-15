@@ -184,6 +184,32 @@
       </div>
       <div v-if="!canSave" class="save-hint">{{ saveBlockReason }}</div>
     </div>
+
+    <!-- 附件影像:凭证保存后可上传原始单据扫描件(jpg/png/pdf ≤10MB) -->
+    <SectionCard v-if="attachmentVoucherId" title="凭证附件" sub="上传发票/合同等原始单据扫描件, jpg/png/pdf, 单个 ≤10MB">
+      <template #actions>
+        <el-upload
+          :show-file-list="false"
+          :auto-upload="true"
+          accept=".jpg,.jpeg,.png,.pdf"
+          :before-upload="beforeAttachmentUpload"
+          :http-request="doAttachmentUpload"
+        >
+          <el-button type="primary" plain :icon="Paperclip" :loading="attachmentUploading">
+            上传附件
+          </el-button>
+        </el-upload>
+      </template>
+      <div v-if="attachments.length" class="attachment-list">
+        <div v-for="a in attachments" :key="a.id" class="attachment-item">
+          <span class="att-icon"><el-icon><Paperclip /></el-icon></span>
+          <span class="att-name" :title="a.fileName">{{ a.fileName }}</span>
+          <span class="att-size">{{ (a.fileSize / 1024).toFixed(0) }} KB</span>
+          <el-button link type="primary" :icon="Download" @click="downloadAttachment(a)">下载</el-button>
+        </div>
+      </div>
+      <div v-else class="attachment-empty">暂无附件,可上传原始单据影像备查</div>
+    </SectionCard>
   </div>
 </template>
 
@@ -191,11 +217,12 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Back, Notebook, CircleCheckFilled, WarningFilled } from '@element-plus/icons-vue'
+import { Plus, Back, Notebook, CircleCheckFilled, WarningFilled, Paperclip, Download } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import {
   subjectTree, partnerList, departmentList, projectList,
   voucherCreate, voucherUpdate, voucherDetail,
+  voucherAttachmentUpload, voucherAttachmentDownload,
 } from '@/api/modules'
 import { fmtMoney, voucherNo, VOUCHER_WORDS, SETTLE_TYPES } from '@/utils/format'
 import PageHeader from '@/components/PageHeader.vue'
@@ -353,6 +380,7 @@ async function loadVoucher() {
     head.word = v.word || '记'
     head.date = dayjs(v.date).format('YYYY-MM-DD')
     head.attachmentCount = v.attachmentCount ?? 0
+    attachments.value = v.attachments || []
     head.memo = v.memo || ''
     head.no = v.no
     const rows: EntryRow[] = (v.entries || []).map((e: any) => ({
@@ -406,7 +434,9 @@ async function save() {
       router.push('/vouchers')
       return
     }
-    await voucherCreate(buildPayload())
+    const created: any = await voucherCreate(buildPayload())
+    // 保存成功后激活附件区,便于立即上传原始单据影像
+    if (created?.id) createdVoucherId.value = Number(created.id)
     try {
       await ElMessageBox.confirm('凭证保存成功,是否继续录入下一张?', '提示', {
         confirmButtonText: '继续录入',
@@ -424,12 +454,70 @@ async function save() {
   }
 }
 
+// ==================== 附件影像 ====================
+/** 可上传附件的凭证 id:编辑模式=当前凭证;新建模式=保存成功后 */
+const attachmentVoucherId = computed(() => (isEdit ? Number(editId) : createdVoucherId.value))
+const createdVoucherId = ref<number | null>(null)
+const attachments = ref<any[]>([])
+const attachmentUploading = ref(false)
+
+function beforeAttachmentUpload(file: File) {
+  const okTypes = ['image/jpeg', 'image/png', 'application/pdf']
+  if (!okTypes.includes(file.type)) {
+    ElMessage.error('仅支持 jpg/png/pdf 附件')
+    return false
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    ElMessage.error('附件不能超过10MB')
+    return false
+  }
+  return true
+}
+
+async function doAttachmentUpload(opts: { file: File }) {
+  const vid = attachmentVoucherId.value
+  if (!vid) {
+    ElMessage.warning('请先保存凭证再上传附件')
+    return
+  }
+  attachmentUploading.value = true
+  try {
+    // 拦截器已解包:返回值即 attachment 记录
+    const att: any = await voucherAttachmentUpload(vid, opts.file)
+    attachments.value.push(att)
+    head.attachmentCount = Number(head.attachmentCount || 0) + 1
+    ElMessage.success('附件已上传')
+  } catch {
+    /* 拦截器已提示 */
+  } finally {
+    attachmentUploading.value = false
+  }
+}
+
+async function downloadAttachment(a: any) {
+  try {
+    // 拦截器对 blob 直接透传:返回值即文件 Blob
+    const blob = await voucherAttachmentDownload(a.id)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = a.fileName || 'attachment'
+    link.click()
+    URL.revokeObjectURL(url)
+  } catch {
+    ElMessage.error('附件下载失败')
+  }
+}
+
 function resetForm() {
   head.word = '记'
   head.date = dayjs().format('YYYY-MM-DD')
   head.attachmentCount = 0
   head.memo = ''
   head.no = undefined
+  // 继续录入新凭证:附件区归位隐藏
+  createdVoucherId.value = null
+  attachments.value = []
   entries.value = [
     { summary: '', debit: undefined, credit: undefined },
     { summary: '', debit: undefined, credit: undefined },
@@ -577,4 +665,20 @@ onMounted(async () => {
   .totals-actions { width: 100%; margin-left: 0; }
   .totals-actions > * { flex: 1; }
 }
+
+/* ==================== 附件影像 ==================== */
+.attachment-list { display: flex; flex-direction: column; gap: 8px; }
+.attachment-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-radius: 8px;
+  background: var(--el-fill-color-light, #f5f7fa);
+  border: 1px solid var(--el-border-color-lighter, #ebeef5);
+}
+.attachment-item .att-icon { color: var(--el-color-primary); display: inline-flex; }
+.attachment-item .att-name {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.attachment-item .att-size { color: var(--el-text-color-secondary); font-size: 12px; white-space: nowrap; }
+.attachment-empty { color: var(--el-text-color-placeholder); font-size: 13px; padding: 8px 2px; }
 </style>

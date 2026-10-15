@@ -78,6 +78,16 @@ export const voucherReject = (id: number, reason: string) => client.post(`/vouch
 export const voucherCancelAudit = (id: number) => client.post(`/vouchers/${id}/cancel-audit`)
 export const voucherVoid = (id: number) => client.post(`/vouchers/${id}/void`)
 export const voucherRedFlush = (id: number, date?: string) => client.post(`/vouchers/${id}/red-flush`, { date })
+// 凭证附件:后端限 jpg/png/pdf ≤10MB,自动累计 attachmentCount
+export const voucherAttachmentUpload = (id: number, file: File) => {
+  const fd = new FormData()
+  fd.append('file', file)
+  return client.post(`/vouchers/${id}/attachments`, fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
+export const voucherAttachmentDownload = (attachmentId: number) =>
+  client.get(`/attachments/${attachmentId}/download`, { responseType: 'blob' })
 
 // ==================== 期末处理 ====================
 export const closingChecklist = (periodId: number | string) =>

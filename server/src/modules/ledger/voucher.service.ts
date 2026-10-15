@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { Prisma, PrismaClient } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { BizException, ERR } from '../../common/errors';
+import { getBusinessToday, toBizDateStr } from '../../common/business-time';
 import { BalanceService } from './balance.service';
 
 export const SOURCE_TYPES = {
@@ -490,7 +491,8 @@ export class VoucherService {
       where: { voucherId: id },
       orderBy: { lineNo: 'asc' },
     });
-    const flushDate = date || new Date().toISOString().slice(0, 10);
+    // 红冲默认入账日期取账套当前期间(避免冻结/演示账套默认落在已结账期间被期间锁拒绝)
+    const flushDate = date || toBizDateStr(await getBusinessToday(this.prisma, tenantId));
     return this.create(
       tenantId,
       userId,

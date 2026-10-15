@@ -194,8 +194,9 @@ async function main() {
   const myClaims = await api('GET', '/expense-claims?scope=mine', { token: empToken });
   assert(myClaims.code === 0 && myClaims.data.list.length >= 2, `员工本人报销单(${myClaims.data?.total} 张)`);
   // 新建报销单并走完整审批流
-  // 发生日期用相对日期:报销有 180 天时效校验(相对真实今天),固定日期会随时间流逝必然失败
-  const occurDate = new Date(Date.now() - 5 * 86400000).toISOString().slice(0, 10);
+  // 发生日期须落在账套"当前业务期间"内:后端时效校验以账套当前开启期间为业务时钟,
+  // 演示账套开启期为 2026-02,故固定取期间内日期(用系统今天会因冻结账套被判"晚于今天")
+  const occurDate = '2026-02-15';
   const newClaim = await api('POST', '/expense-claims', {
     token: empToken,
     body: {
