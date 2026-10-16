@@ -225,6 +225,15 @@ model SummaryLib {
   @@index([tenantId])
 }
 
+// ==================== 令牌吊销黑名单(重启不丢) ====================
+model TokenRevocation {
+  id    Int      @id @default(autoincrement())
+  jti   String   @unique
+  expAt DateTime // 令牌自然过期时间,过期后可清理
+
+  @@index([expAt])
+}
+
 // ==================== 凭证模板 ====================
 
 model VoucherTemplate {
