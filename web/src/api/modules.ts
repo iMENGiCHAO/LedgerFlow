@@ -170,7 +170,7 @@ export const getCurrentParams = () => client.get('/tenants/current/params').then
 export const updateCurrentParams = (data: { gmExpenseThreshold?: number; defaultTaxRate?: number }) =>
   client.put('/tenants/current/params', data).then((r) => r.data)
 /** 退出登录:后端把 jti 加入黑名单,后续 token 立即失效 */
-export const authLogout = (data: { jti: string; accessExp: number }) => client.post('/auth/logout', data).then((r) => r.data)
+export const authLogout = (data: { jti: string; accessExp: number; refreshJti?: string; refreshExp?: number }) => client.post('/auth/logout', data).then((r) => r.data)
 /** 切换账套(后端发新 token) */
 export const switchToTenantApi = (tenantId: number) =>
   client.post('/auth/switch-tenant', { tenantId }).then((r) => r.data)

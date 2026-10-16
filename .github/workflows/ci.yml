@@ -43,7 +43,10 @@ jobs:
           cache-dependency-path: server/pnpm-lock.yaml
 
       - name: 安装依赖(含 prisma generate)
-        run: pnpm install --frozen-lockfile
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm approve-builds --all || true
+          pnpm rebuild || true
 
       - name: 初始化数据库(建表 + 种子)
         run: |
@@ -88,7 +91,10 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
 
       - name: 安装依赖
-        run: pnpm install --frozen-lockfile
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm approve-builds --all || true
+          pnpm rebuild || true
 
       - name: 生产构建
         run: pnpm build

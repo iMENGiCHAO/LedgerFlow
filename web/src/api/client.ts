@@ -4,9 +4,40 @@ import { ElMessage } from 'element-plus'
 /** 统一清除本地登录态 */
 export function clearAuthStorage() {
   localStorage.removeItem('fm_token')
+  localStorage.removeItem('fm_refresh')
   localStorage.removeItem('fm_user')
   localStorage.removeItem('fm_tenants')
   localStorage.removeItem('fm_tenant_id')
+}
+
+/** 401 静默续期:用 refreshToken 换新 accessToken(并发共享同一次刷新,失败返回 null) */
+let refreshingPromise: Promise<string | null> | null = null
+export function tryRefreshToken(): Promise<string | null> {
+  const rt = localStorage.getItem('fm_refresh')
+  if (!rt) return Promise.resolve(null)
+  if (!refreshingPromise) {
+    refreshingPromise = (async () => {
+      try {
+        const r = await fetch('/api/v1/auth/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken: rt }),
+        })
+        const j = await r.json()
+        if (j.code === 0 && j.data?.accessToken) {
+          localStorage.setItem('fm_token', j.data.accessToken)
+          if (j.data.refreshToken) localStorage.setItem('fm_refresh', j.data.refreshToken)
+          return j.data.accessToken as string
+        }
+        return null
+      } catch {
+        return null
+      } finally {
+        refreshingPromise = null
+      }
+    })()
+  }
+  return refreshingPromise
 }
 
 function gotoLogin() {
@@ -78,11 +109,22 @@ client.interceptors.response.use(
     }
     return body.data
   },
-  (error: AxiosError<any>) => {
+  async (error: AxiosError<any>) => {
     const status = error?.response?.status
     const body = error?.response?.data as { code?: number; message?: string } | undefined
     const msg = body?.message || error.message || '网络请求失败'
     if (status === 401 || body?.code === 401 || body?.code === 40100) {
+      const cfg = error.config as any
+      const isRefreshCall = cfg?.url?.includes('/auth/refresh')
+      // 静默续期:非 refresh 请求且未重放过 → 换新 token 重放一次(抛出续期信号交由 async 包装)
+      if (!isRefreshCall && cfg && !cfg._retried && localStorage.getItem('fm_refresh')) {
+        const newToken = await tryRefreshToken()
+        if (newToken) {
+          cfg._retried = true
+          cfg.headers = { ...(cfg.headers || {}), Authorization: `Bearer ${newToken}` }
+          return client.request(cfg)
+        }
+      }
       const now = Date.now()
       if (now - lastUnauthShownAt > 1000) {
         showOnce('error', msg, 2000)

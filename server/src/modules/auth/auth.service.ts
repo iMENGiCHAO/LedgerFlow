@@ -109,6 +109,8 @@ export class AuthService {
     try {
       const payload = await this.jwt.verifyAsync(refreshToken);
       if (!payload?.uid) throw new Error('bad token');
+      // 已注销的 refresh token 一并拒绝(与 access 同黑名单,防登出后续命)
+      if (TokenBlacklist.isRevoked(payload.jti)) throw new Error('revoked');
       // 校验用户仍启用
       const u = await this.prisma.user.findUnique({ where: { id: payload.uid }, select: { status: true } });
       if (u?.status !== 1) throw new Error('disabled');

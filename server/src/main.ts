@@ -37,6 +37,10 @@ async function bootstrap() {
     app.get(Reflector, { strict: false }),
   );
 
+  // 令牌黑名单:启动时从数据库加载未过期吊销记录(重启后已注销 token 仍失效)
+  const { TokenBlacklist } = await import('./common/token-blacklist');
+  await TokenBlacklist.init(app.get(PrismaService, { strict: false }));
+
   app.setGlobalPrefix('api/v1');
   // CORS:默认仅同源(开发态由 Vite 代理 /api,无跨域);需要跨域时用 CORS_ORIGIN 显式放开
   const corsOrigin = (process.env.CORS_ORIGIN ?? '').trim();
