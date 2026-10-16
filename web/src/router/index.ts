@@ -36,6 +36,7 @@ const routes = [
       // 财务报表
       { path: 'reports/balance-sheet', name: 'balanceSheet', component: () => import('@/views/report/BalanceSheet.vue'), meta: { title: '资产负债表', perm: ['report:view'], group: '财务报表' } },
       { path: 'reports/income', name: 'incomeStatement', component: () => import('@/views/report/IncomeStatement.vue'), meta: { title: '利润表', perm: ['report:view'], group: '财务报表' } },
+      { path: 'reports/cash-flow', name: 'cashFlowStatement', component: () => import('@/views/report/CashFlowStatement.vue'), meta: { title: '现金流量表', perm: ['report:view'], group: '财务报表' } },
       // 业务模块
       { path: 'arap', name: 'arap', component: () => import('@/views/arap/ArapBills.vue'), meta: { title: '应收应付', perm: ['arap:manage'] } },
       { path: 'invoices', name: 'invoices', component: () => import('@/views/invoice/InvoiceLedger.vue'), meta: { title: '发票台账', perm: ['invoice:manage'] } },

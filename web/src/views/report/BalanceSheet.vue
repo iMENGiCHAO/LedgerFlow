@@ -131,13 +131,24 @@ function periodLabel(p: any): string {
   return `${p.year}-${String(p.month).padStart(2, '0')}(${PERIOD_STATUS[p.status] ?? '未知状态'})`
 }
 
+
+/** 默认期间:最早未结账(开启中)期间;无开启期间则取最后一项 */
+function pickDefaultPeriodId(list: any[]): number | null {
+  if (!list.length) return null
+  const open = list.filter((p: any) => p.status === 1)
+  if (open.length) {
+    return open.reduce((a: any, b: any) => (a.year * 12 + a.month <= b.year * 12 + b.month ? a : b)).id
+  }
+  return list[list.length - 1].id
+}
+
 async function loadPeriods() {
   periodLoading.value = true
   try {
     const res: any = await periodList()
     periods.value = res?.list || []
     if (periods.value.length && !periodId.value) {
-      periodId.value = periods.value[periods.value.length - 1].id
+      periodId.value = pickDefaultPeriodId(periods.value)
     }
   } catch {
     /* 拦截器已提示 */

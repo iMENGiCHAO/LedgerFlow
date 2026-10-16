@@ -70,6 +70,11 @@ export const saveInitialBalances = (
 export const voucherList = (params?: Record<string, unknown>) => client.get('/vouchers', { params }).then(Adapters.voucherList)
 export const voucherDetail = (id: number | string) => client.get(`/vouchers/${id}`).then(Adapters.voucher)
 export const voucherCreate = (data: Record<string, unknown>) => client.post('/vouchers', data)
+
+export const voucherTemplateList = (): Promise<any> => client.get('/vouchers/templates')
+export const voucherTemplateSave = (data: Record<string, unknown>): Promise<any> => client.post('/vouchers/templates', data)
+export const voucherTemplateRemove = (id: number): Promise<any> => client.delete(`/vouchers/templates/${id}`)
+export const voucherSummaryList = (): Promise<any> => client.get('/vouchers/summaries')
 export const voucherUpdate = (id: number | string, data: Record<string, unknown>) => client.put(`/vouchers/${id}`, data)
 export const voucherDelete = (id: number) => client.delete(`/vouchers/${id}`)
 export const voucherSubmit = (id: number) => client.post(`/vouchers/${id}/submit`)
@@ -104,6 +109,9 @@ export const reportDetailLedger = (subjectId: number, year: number, fromMonth: n
   client.get(`/reports/detail-ledger/${subjectId}`, { params: { year, fromMonth, toMonth } })
 export const reportBalanceSheet = (periodId?: number) =>
   client.get('/reports/balance-sheet', { params: periodId ? { periodId } : {} }).then(Adapters.reportBalanceSheet)
+
+export const reportCashFlow = (year: number, month: number) =>
+  client.get('/reports/cash-flow', { params: { year, month } })
 export const reportIncome = (periodId?: number, fromMonth?: number) =>
   client.get('/reports/income', { params: { ...(periodId ? { periodId } : {}), ...(fromMonth ? { fromMonth } : {}) } }).then(Adapters.reportIncome)
 

@@ -315,6 +315,7 @@ const MENU_GROUPS: MenuGroup[] = [
         children: [
           { path: '/reports/balance-sheet', title: '资产负债表' },
           { path: '/reports/income', title: '利润表' },
+          { path: '/reports/cash-flow', title: '现金流量表' },
         ],
       },
     ],

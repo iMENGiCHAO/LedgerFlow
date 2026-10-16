@@ -225,6 +225,21 @@ model SummaryLib {
   @@index([tenantId])
 }
 
+// ==================== 凭证模板 ====================
+
+model VoucherTemplate {
+  id        Int      @id @default(autoincrement())
+  tenantId  Int
+  name      String
+  word      String   @default("记")
+  memo      String?
+  entries   Json
+  createdBy Int
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+}
+
 // ==================== 期初余额 ====================
 
 model InitialBalance {

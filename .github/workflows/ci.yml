@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  server:
+    name: 后端(单测 + E2E + 构建)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: financial_mgmt
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/financial_mgmt?schema=public
+      JWT_SECRET: ci-only-secret-do-not-use-in-prod
+      PORT: '3100'
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: server/pnpm-lock.yaml
+
+      - name: 安装依赖(含 prisma generate)
+        run: pnpm install --frozen-lockfile
+
+      - name: 初始化数据库(建表 + 种子)
+        run: |
+          pnpm db:push
+          pnpm db:seed
+
+      - name: 单元测试
+        run: pnpm test
+
+      - name: 构建
+        run: pnpm build
+
+      - name: E2E 回归(44 项)
+        run: |
+          node dist/main.js &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:3100/api/v1/health > /dev/null; then break; fi
+            sleep 1
+          done
+          CI=true pnpm e2e
+          EXIT=$?
+          pkill -f "node dist/main.js" || true
+          exit $EXIT
+
+  web:
+    name: 前端(构建)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 生产构建
+        run: pnpm build

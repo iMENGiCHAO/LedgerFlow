@@ -2,6 +2,7 @@ import { Controller, Get, Param, ParseIntPipe, Query, Res } from '@nestjs/common
 import type { Response } from 'express';
 import { CurrentTid, Perm } from '../../common/decorators';
 import { ReportService } from './report.service';
+import { CashFlowService } from './cashflow.service';
 import { PrismaService } from '../../prisma.service';
 import { buildXlsx, sendXlsx } from '../../common/excel';
 
@@ -9,8 +10,29 @@ import { buildXlsx, sendXlsx } from '../../common/excel';
 export class ReportController {
   constructor(
     private readonly reports: ReportService,
+    private readonly cashflow: CashFlowService,
     private readonly prisma: PrismaService,
   ) {}
+
+  /** 现金流量表(小企业会计准则表样;format=xlsx 导出) */
+  @Get('cash-flow')
+  @Perm('report:view')
+  async cashFlow(
+    @CurrentTid() tenantId: number,
+    @Query('year', ParseIntPipe) year: number,
+    @Query('month', ParseIntPipe) month: number,
+    @Query('format') format: 'xlsx' | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const data = await this.cashflow.generate(tenantId, year, month);
+    if (format === 'xlsx') {
+      const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+      const buf = await buildCfXlsx(tenant?.name || '', year, month, data);
+      sendXlsx(res, buf, `现金流量表-${year}-${String(month).padStart(2, '0')}.xlsx`);
+      return;
+    }
+    return data;
+  }
 
   @Get('balance-sheet')
   @Perm('report:view')
@@ -216,6 +238,30 @@ async function buildDetailLedgerXlsx(company: string, year: number, fromM: numbe
         summary: r.summary || '',
         debit: Number(r.debit || 0), credit: Number(r.credit || 0),
         dir: r.dir || '', balance: Number(r.balance || 0),
+      })),
+    }],
+  });
+}
+
+
+/** 现金流量表 xlsx */
+async function buildCfXlsx(company: string, year: number, month: number, data: any) {
+  return buildXlsx({
+    filename: `现金流量表-${year}-${month}`,
+    companyName: company,
+    sheets: [{
+      name: '现金流量表',
+      columns: [
+        { header: '行次', key: 'no', width: 8, align: 'center' },
+        { header: '项目', key: 'name', width: 46 },
+        { header: '本期金额', key: 'period', width: 18, numFmt: '#,##0.00' },
+        { header: '本年累计', key: 'ytd', width: 18, numFmt: '#,##0.00' },
+      ],
+      rows: (data?.rows || []).map((r: any) => ({
+        no: r.no,
+        name: (r.bold ? '' : '  ') + r.name,
+        period: Number(r.periodValue || 0),
+        ytd: Number(r.ytdValue || 0),
       })),
     }],
   });

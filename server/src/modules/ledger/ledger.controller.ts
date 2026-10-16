@@ -163,6 +163,67 @@ export class LedgerController {
     return this.vouchers.list(tenantId, q);
   }
 
+  // ===== 凭证模板与摘要联想(声明顺序须先于 vouchers/:id) =====
+
+  @Get('vouchers/templates')
+  @Perm('voucher:create')
+  async listTemplates(@CurrentTid() tenantId: number) {
+    const rows = await this.prisma.voucherTemplate.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    return { list: rows.map((r) => ({ id: r.id, name: r.name, word: r.word, memo: r.memo, entries: r.entries, createdAt: r.createdAt })) };
+  }
+
+  @Post('vouchers/templates')
+  @Perm('voucher:create')
+  @OpLog('voucher.template.save')
+  async saveTemplate(
+    @CurrentTid() tenantId: number,
+    @CurrentUser() user: SessionUser,
+    @Body() body: { name: string; word?: string; memo?: string; entries: VoucherInput['entries'] },
+  ) {
+    if (!body?.name?.trim()) throw new BadRequestException('模板名称不能为空');
+    if (!Array.isArray(body.entries) || body.entries.length < 2) throw new BadRequestException('模板分录至少两行');
+    const t = await this.prisma.voucherTemplate.create({
+      data: {
+        tenantId,
+        name: body.name.trim().slice(0, 50),
+        word: body.word || '记',
+        memo: body.memo?.slice(0, 200) ?? null,
+        entries: body.entries as object,
+        createdBy: user.uid,
+      },
+    });
+    return { id: t.id, name: t.name };
+  }
+
+  @Delete('vouchers/templates/:id')
+  @Perm('voucher:create')
+  @OpLog('voucher.template.delete')
+  async removeTemplate(@CurrentTid() tenantId: number, @Param('id', ParseIntPipe) id: number) {
+    const t = await this.prisma.voucherTemplate.findFirst({ where: { id, tenantId } });
+    if (!t) throw new BadRequestException('模板不存在');
+    await this.prisma.voucherTemplate.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  /** 摘要联想:该账套已记账凭证的常用摘要 top100 */
+  @Get('vouchers/summaries')
+  @Perm('voucher:create')
+  async listSummaries(@CurrentTid() tenantId: number) {
+    const rows = await this.prisma.$queryRawUnsafe<{ text: string; cnt: string }[]>(
+      `SELECT e.summary AS text, COUNT(*)::text AS cnt
+       FROM "VoucherEntry" e
+       JOIN "Voucher" v ON v.id = e."voucherId"
+       WHERE v."tenantId"=$1 AND v.status=2 AND e.summary IS NOT NULL AND e.summary <> ''
+       GROUP BY e.summary ORDER BY COUNT(*) DESC, MAX(e.summary) ASC LIMIT 100`,
+      tenantId,
+    );
+    return { list: rows.map((r) => ({ text: r.text, count: Number(r.cnt) })) };
+  }
+
   @Get('vouchers/:id')
   @Perm('ledger:view')
   getVoucher(@CurrentTid() tenantId: number, @Param('id', ParseIntPipe) id: number) {

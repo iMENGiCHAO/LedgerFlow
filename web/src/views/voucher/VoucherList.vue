@@ -131,7 +131,7 @@
         <el-table-column label="审核人" width="90" align="center">
           <template #default="{ row }">{{ row.auditor?.realName || '-' }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" width="320" fixed="right">
           <template #default="{ row }">
             <div class="row-actions">
               <template v-if="row.status === 0">
@@ -150,6 +150,7 @@
               <template v-else-if="row.status === 2">
                 <button v-if="canAudit" class="action-btn warn" @click="cancelAuditRow(row)">反审核</button>
                 <button v-if="canCreate" class="action-btn danger" @click="openRedFlush(row)">红冲</button>
+                <button v-if="canCreate" class="action-btn" @click="copyRow(row)">复制</button>
                 <button class="action-btn" @click="printVoucher(row)">打印</button>
               </template>
             </div>
@@ -204,8 +205,16 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Plus, Refresh, RefreshLeft, Notebook, Document, Download } from '@element-plus/icons-vue'
 import { exportExcel } from '@/utils/exporter'
 import {
-  voucherList, voucherDelete, voucherSubmit, voucherApprove, voucherReject,
-  voucherCancelAudit, voucherVoid, voucherRedFlush, periodList, voucherDetail,
+  voucherList,
+  voucherDelete,
+  voucherSubmit,
+  voucherApprove,
+  voucherReject,
+  voucherCancelAudit,
+  voucherVoid,
+  voucherRedFlush,
+  periodList,
+  voucherDetail,
 } from '@/api/modules'
 import { fmtMoney, fmtDate, voucherNo, VOUCHER_STATUS, SOURCE_TYPES, printHtml } from '@/utils/format'
 import { useAuthStore } from '@/stores/auth'
@@ -261,6 +270,25 @@ async function loadPeriods() {
       query.periodId = (open || periods.value[periods.value.length - 1]).id
     }
   } catch { /* ignore */ }
+}
+
+async function copyRow(row: any) {
+  try {
+    const v: any = await voucherDetail(row.id)
+    sessionStorage.setItem('fm_voucher_copy', JSON.stringify({
+      word: v.word || '记',
+      memo: v.memo || '',
+      entries: (v.entries || []).map((e: any) => ({
+        summary: e.summary || '', subjectId: e.subjectId ?? null,
+        debit: Number(e.debit) > 0 ? Number(e.debit) : undefined,
+        credit: Number(e.credit) > 0 ? Number(e.credit) : undefined,
+        partnerId: e.partnerId ?? null, departmentId: e.departmentId ?? null, projectId: e.projectId ?? null,
+        settleType: e.settleType ?? null, settleNo: e.settleNo ?? null,
+      })),
+    }))
+    ElMessage.success('分录已复制,请在新凭证页确认保存')
+    router.push('/vouchers/new')
+  } catch { /* 拦截器已提示 */ }
 }
 
 async function loadList() {

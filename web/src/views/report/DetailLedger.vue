@@ -36,6 +36,7 @@
           <el-option v-for="m in 12" :key="`t${m}`" :label="`${m} 月`" :value="m" />
         </el-select>
         <el-button type="primary" :icon="Search" :disabled="!subjectId" :loading="loading" @click="doQuery">查询</el-button>
+        <el-button :icon="Download" :disabled="!ledger" :loading="exporting" @click="onExport">导出Excel</el-button>
       </FilterBar>
 
       <div v-if="ledger?.subject" class="dl-meta">
@@ -124,7 +125,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search, Document } from '@element-plus/icons-vue'
+import { Search, Document, Download } from '@element-plus/icons-vue'
+import { exportExcel } from '@/utils/exporter'
 import { reportDetailLedger, subjectTree } from '@/api/modules'
 import { fmtDate, fmtMoney, voucherNo } from '@/utils/format'
 import PageHeader from '@/components/PageHeader.vue'
@@ -204,6 +206,23 @@ function balanceText(row: any): string {
 function rowClass({ row }: any): string {
   if (isSpecial(row)) return 'is-special'
   return ''
+}
+
+const exporting = ref(false)
+
+async function onExport() {
+  if (!subjectId.value || !ledger.value) return
+  exporting.value = true
+  try {
+    await exportExcel({
+      url: `/reports/detail-ledger/${subjectId.value}`,
+      filename: `明细账-${ledger.value.subject?.code || ''}`,
+      params: { year: year.value, fromMonth: fromMonth.value, toMonth: toMonth.value },
+      loadingText: '明细账 Excel',
+    })
+  } finally {
+    exporting.value = false
+  }
 }
 
 async function doQuery() {

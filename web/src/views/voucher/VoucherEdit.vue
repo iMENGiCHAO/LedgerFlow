@@ -7,6 +7,19 @@
       :sub="isEdit ? '已记账的凭证不能修改,如需调整请使用红冲' : '借贷必平,辅助核算按科目规则自动校验'"
     >
       <template #actions>
+        <el-dropdown v-if="!isEdit" trigger="click" @command="applyTemplate">
+          <el-button :icon="MagicStick" :loading="templatesLoading">应用模板<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-for="t in templates" :key="t.id" :command="t.id" divided style="display:flex;justify-content:space-between;align-items:center;min-width:220px">
+                <span>{{ t.name }}</span>
+                <el-button link type="danger" size="small" @click.stop="removeTemplate(t.id)">删除</el-button>
+              </el-dropdown-item>
+              <el-dropdown-item v-if="!templates.length" disabled>暂无模板,可在录入分录后「存为模板」</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <el-button v-if="!isEdit" :icon="CollectionTag" @click="saveAsTemplate">存为模板</el-button>
         <el-button :icon="Back" @click="$router.push('/vouchers')">返回列表</el-button>
       </template>
     </PageHeader>
@@ -40,7 +53,14 @@
           <el-table-column type="index" label="#" width="50" align="center" />
           <el-table-column label="摘要" min-width="170">
             <template #default="{ row }">
-              <el-input v-model="row.summary" placeholder="本行摘要" maxlength="200" size="default" />
+              <el-autocomplete
+                v-model="row.summary"
+                :fetch-suggestions="querySummary"
+                placeholder="本行摘要(可联想)"
+                maxlength="200"
+                size="default"
+                class="summary-auto"
+              />
             </template>
           </el-table-column>
           <el-table-column label="会计科目" min-width="240">
@@ -217,12 +237,13 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Back, Notebook, CircleCheckFilled, WarningFilled, Paperclip, Download } from '@element-plus/icons-vue'
+import { Plus, Back, Notebook, CircleCheckFilled, WarningFilled, Paperclip, Download, MagicStick, ArrowDown, CollectionTag } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import {
   subjectTree, partnerList, departmentList, projectList,
   voucherCreate, voucherUpdate, voucherDetail,
   voucherAttachmentUpload, voucherAttachmentDownload,
+  voucherSummaryList, voucherTemplateList, voucherTemplateRemove, voucherTemplateSave,
 } from '@/api/modules'
 import { fmtMoney, voucherNo, VOUCHER_WORDS, SETTLE_TYPES } from '@/utils/format'
 import PageHeader from '@/components/PageHeader.vue'
@@ -524,14 +545,127 @@ function resetForm() {
   ]
 }
 
+// ---------- 模板 / 摘要联想 / 复制预填 ----------
+const templates = ref<any[]>([])
+const templatesLoading = ref(false)
+const summaryPool = ref<string[]>([])
+
+async function loadTemplates() {
+  templatesLoading.value = true
+  try {
+    const res: any = await voucherTemplateList()
+    templates.value = res?.list || []
+  } catch { /* 拦截器已提示 */ } finally { templatesLoading.value = false }
+}
+
+async function loadSummaries() {
+  try {
+    const res: any = await voucherSummaryList()
+    summaryPool.value = (res?.list || []).map((s: any) => s.text)
+  } catch { /* 静默 */ }
+}
+
+function querySummary(qs: string, cb: (list: any[]) => void) {
+  const kw = (qs || '').trim()
+  const list = (!kw ? summaryPool.value : summaryPool.value.filter((t) => t.includes(kw)))
+    .slice(0, 8)
+    .map((t) => ({ value: t }))
+  cb(list)
+}
+
+function mapTemplateEntries(raw: any[]): typeof entries.value {
+  return (raw || []).map((e: any) => ({
+    summary: e.summary || '',
+    subjectId: e.subjectId ?? null,
+    debit: Number(e.debit) > 0 ? Number(e.debit) : undefined,
+    credit: Number(e.credit) > 0 ? Number(e.credit) : undefined,
+    partnerId: e.partnerId ?? null,
+    departmentId: e.departmentId ?? null,
+    projectId: e.projectId ?? null,
+    settleType: e.settleType ?? null,
+    settleNo: e.settleNo ?? null,
+  }))
+}
+
+async function applyTemplate(id: number) {
+  const t = templates.value.find((x: any) => x.id === id)
+  if (!t) return
+  const rows = mapTemplateEntries(t.entries || [])
+  if (rows.length < 2) { ElMessage.warning('模板分录为空'); return }
+  entries.value = rows
+  if (t.word) head.word = t.word
+  if (t.memo) head.memo = t.memo
+  ElMessage.success(`已应用模板「${t.name}」(分录 ${rows.length} 行,请补全科目与金额)`)
+}
+
+async function removeTemplate(id: number) {
+  try {
+    await ElMessageBox.confirm('确认删除该模板?', '提示', { type: 'warning' })
+  } catch { return }
+  try {
+    await voucherTemplateRemove(id)
+    ElMessage.success('模板已删除')
+    await loadTemplates()
+  } catch { /* 拦截器已提示 */ }
+}
+
+async function saveAsTemplate() {
+  const filled = entries.value.filter((r: any) => r.summary && r.summary.trim())
+  if (filled.length < 2) { ElMessage.warning('至少填写 2 行带摘要的分录后再存为模板'); return }
+  let name = ''
+  try {
+    const r = await ElMessageBox.prompt('模板名称', '存为凭证模板', { inputValue: (filled[0].summary || '').slice(0, 20), inputPattern: /^.{1,50}$/, inputErrorMessage: '名称 1-50 字' })
+    name = r.value.trim()
+  } catch { return }
+  try {
+    await voucherTemplateSave({
+      name,
+      word: head.word,
+      memo: head.memo || undefined,
+      entries: entries.value.map((e: any) => ({
+        summary: e.summary || '', subjectId: e.subjectId ?? null,
+        debit: e.debit ?? 0, credit: e.credit ?? 0,
+        partnerId: e.partnerId ?? null, departmentId: e.departmentId ?? null, projectId: e.projectId ?? null,
+        settleType: e.settleType ?? null, settleNo: e.settleNo ?? null,
+      })),
+    })
+    ElMessage.success('模板已保存')
+    await loadTemplates()
+  } catch { /* 拦截器已提示 */ }
+}
+
+/** 列表「复制」入口:读取 sessionStorage 预填(不复制凭证号/日期) */
+function consumeCopy() {
+  try {
+    const raw = sessionStorage.getItem('fm_voucher_copy')
+    if (!raw) return
+    sessionStorage.removeItem('fm_voucher_copy')
+    const data = JSON.parse(raw)
+    const rows = mapTemplateEntries(data.entries || [])
+    if (rows.length >= 2) {
+      entries.value = rows
+      if (data.memo) head.memo = data.memo
+      if (data.word) head.word = data.word
+      ElMessage.success('已载入复制的分录,请确认科目/金额后保存')
+    }
+  } catch { /* 忽略坏数据 */ }
+}
+
 onMounted(async () => {
   await loadBase()
-  if (isEdit) loadVoucher()
+  if (isEdit) {
+    loadVoucher()
+  } else {
+    loadTemplates()
+    loadSummaries()
+    consumeCopy()
+  }
 })
 </script>
 
 <style scoped>
 .voucher-edit { display: flex; flex-direction: column; gap: 18px; }
+.summary-auto { width: 100%; }
 .voucher-card { margin-bottom: 0; }
 
 .head-form { margin-bottom: -16px; }
