@@ -269,6 +269,11 @@ export class SystemService {
     });
     if (!t) throw new NotFoundException('账套不存在');
     if (t.status === 1) throw new BadRequestException('已启用的账套不能删除(请先停用)');
+    // 无 relation 定义的关联同样算「业务痕迹」(显式 count)
+    const [batchCount, empCount] = await Promise.all([
+      this.prisma.payrollBatch.count({ where: { tenantId: id } }),
+      this.prisma.employee.count({ where: { tenantId: id } }),
+    ]);
     // 业务规则:不允许删除有任何"业务痕迹"的账套
     //  - 凭证/科目/往来单位 是真实业务数据,绝不可"丢失"
     //  - userTenants 是授权关系,删除账套时一并清空(下面事务里删)
@@ -276,6 +281,8 @@ export class SystemService {
     if (t._count.vouchers > 0) reasons.push(`凭证 ${t._count.vouchers} 张`);
     if (t._count.subjects > 0) reasons.push(`科目 ${t._count.subjects} 个`);
     if (t._count.partners > 0) reasons.push(`往来单位 ${t._count.partners} 个`);
+    if (batchCount > 0) reasons.push(`工资批次 ${batchCount} 个`);
+    if (empCount > 0) reasons.push(`员工档案 ${empCount} 个`);
     if (reasons.length > 0) {
       throw new BadRequestException(`账套下仍有数据,无法删除:${reasons.join('、')}。请先清空数据后再删,或保留账套仅「停用」。`);
     }

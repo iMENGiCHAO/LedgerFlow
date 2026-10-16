@@ -73,6 +73,14 @@ export class PayrollService {
 
     const valid = (items || []).filter((i) => Number(i.gross) >= 0);
     if (!valid.length) throw new BadRequestException('至少一行工资数据');
+    // 租户隔离:员工必须属于本账套在册名单
+    const ownEmployees = await this.prisma.employee.findMany({
+      where: { tenantId, status: 1 },
+      select: { id: true },
+    });
+    const ownIds = new Set(ownEmployees.map((e) => e.id));
+    const foreign = valid.filter((i) => !ownIds.has(Number(i.employeeId)));
+    if (foreign.length) throw new BadRequestException('存在非本账套在册员工的工资行,已拒绝');
     for (const it of valid) {
       const net = r2(Number(it.gross) - Number(it.socialIns || 0) - Number(it.tax || 0) - Number(it.otherDed || 0));
       if (net < 0) throw new BadRequestException('实发不能为负:请检查代扣金额');

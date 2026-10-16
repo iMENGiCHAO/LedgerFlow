@@ -12,6 +12,9 @@
 ![Prisma](https://img.shields.io/badge/Prisma-ORM-2D3748)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-%E2%89%A515-336791?logo=postgresql&logoColor=white)
 ![E2E](https://img.shields.io/badge/E2E-44%2F44_pass-brightgreen)
+![单元测试](https://img.shields.io/badge/%E5%8D%95%E5%85%83%E6%B5%8B%E8%AF%95-31%2F31-brightgreen)
+![租户隔离](https://img.shields.io/badge/%E7%A7%9F%E6%88%B7%E9%9A%94%E7%A6%BB%E5%AE%A1%E8%AE%A1-10%2F10_pass-green)
+![CI](https://img.shields.io/badge/GitHub_Actions-CI_passing-2088FF?logo=githubactions&logoColor=white)
 ![Smoke](https://img.shields.io/badge/UI_Smoke-10%2F10_pass-brightgreen)
 
 </div>
@@ -54,7 +57,9 @@
 | 基础设置 | 预置小企业会计准则科目表(4-2-2 分级)、往来单位/部门/项目/员工档案 |
 | 期初建账 | 科目期初录入、试算平衡校验、一键启用账套 |
 | 凭证管理 | 录入(借贷平衡/辅助核算强校验)→提交→审核→记账;驳回、反审核、作废、**红冲**;**附件影像上传/下载**;标准格式打印 |
+| 工资核算 | 月度工资批次(应发/社保/个税/实发自动计算);**计提/发放一键生成凭证**(按部门拆分借方、代扣暂挂其他应付款) |
 | 账簿报表 | 总账口径科目余额表(含年累计)、明细分类账(逐笔+余额滚存);资产负债表(自动含未结转损益,实时平衡校验)、利润表(本期/年累计,剔除结转凭证口径) |
+| 税务支持 | 增值税申报测算(季度,税率分组销项/进项 + 一般纳税人/小规模双口径),申报参考表样导出 |
 | 期末处理 | 结账检查清单(上期已结/无待审/损益已转/试算平衡)、结转损益向导(按科目+辅助维度分组,尾差自动调整)、计提折旧向导(平均年限法,当月增减规则)、结账/反结账 |
 | 应收应付 | 应收/收款/应付/付款单据、多对多核销、账龄分析(0-30/31-60/61-90/90+)、收付款自动生成凭证 |
 | 发票台账 | 进销项登记、CSV 批量导入、增值税统计(销项-进项)、销项发票一键生成应收单 |
@@ -145,7 +150,7 @@ server/
       masterdata/             # 科目/档案
       ledger/                 # 期初/凭证引擎/期末结账/余额计算核心
       report/                 # 报表引擎(公式配置驱动)/账簿查询
-      business/               # 应收应付/发票/资金/报销/固定资产/看板
+      business/               # 应收应付/发票(申报测算)/资金/报销/固定资产/工资核算/看板
   scripts/e2e.mjs             # 端到端回归(44 项断言)
 web/                          # Vue3 SPA(Element Plus)
   attachment-e2e.mjs          # 附件上传/下载端到端(需前后端运行中)
@@ -158,14 +163,15 @@ docs/                         # 开发文档/验收报告/截图
 ```bash
 cd server
 pnpm run test            # 单元测试(余额归一化/折旧边界/序列号)
-CI=true pnpm run e2e     # E2E 44 项:认证/RBAC/凭证全流程/红冲/报表平衡/结账控制/核销/对账/报销流/折旧
+CI=true pnpm run e2e     # E2E 44 项
+node scripts/audit-isolation.mjs   # 多租户隔离审计 10 项
 cd ../web
 pnpm build               # 生产构建
 node smoke-e2e.mjs       # UI 冒烟 10 项(组件渲染/路由/图表/样式注入)
 node attachment-e2e.mjs  # 附件上传→计数→下载 端到端
 ```
 
-最近一次全量验证:**后端 E2E 44/44、单元测试 5/5、前端冒烟 10/10、附件端到端全通过**,详见 `docs/验收报告.md`。
+最近一次全量验证:**后端 E2E 44/44、单元测试 31/31、多租户隔离审计 10/10、前端冒烟 10/10、附件端到端全通过**;CI(GitHub Actions:PG16 service + 单测 + E2E + 隔离审计 + 双端构建)全绿,详见 `docs/验收报告.md`。
 
 ## 备份与恢复
 

@@ -59,7 +59,7 @@ jobs:
       - name: 构建
         run: pnpm build
 
-      - name: E2E 回归(44 项)
+      - name: E2E 回归(44 项)+ 多租户隔离审计
         run: |
           node dist/main.js &
           for i in $(seq 1 30); do
@@ -68,6 +68,7 @@ jobs:
           done
           CI=true pnpm e2e
           EXIT=$?
+          node scripts/audit-isolation.mjs || EXIT=$?
           pkill -f "node dist/main.js" || true
           exit $EXIT
 
