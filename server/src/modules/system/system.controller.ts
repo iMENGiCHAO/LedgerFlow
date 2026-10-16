@@ -4,6 +4,7 @@ import { IsArray, IsBoolean, IsInt, IsOptional, IsString, MinLength } from 'clas
 import { createReadStream } from 'fs';
 import { CurrentUser, OpLog, Perm, Public, SessionUser, CurrentTid } from '../../common/decorators';
 import { PrismaService } from '../../prisma.service';
+import { metrics } from '../../common/metrics';
 import { SystemService } from './system.service';
 
 class CreateUserDto {
@@ -186,6 +187,17 @@ export class SystemController {
       ts: new Date().toISOString(),
       uptimeSec: Math.round(process.uptime()),
       db: { ok: dbOk, ms: dbMs },
+      runtime: {
+        pid: process.pid,
+        node: process.version,
+        memMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
+        heapMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+      },
+      metrics: {
+        requestsTotal: metrics.requestsTotal,
+        requestsSlow: metrics.requestsSlow,
+        inFlight: metrics.inFlight,
+      },
       totalMs: Date.now() - t0,
       version: '1.0.0',
     }

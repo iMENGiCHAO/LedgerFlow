@@ -41,6 +41,32 @@ async function bootstrap() {
   const { TokenBlacklist } = await import('./common/token-blacklist');
   await TokenBlacklist.init(app.get(PrismaService, { strict: false }));
 
+  // 结构化访问日志:一行 JSON(method/path/status/耗时;>1s 标 slow;health 静默)
+  const { metrics } = await import('./common/metrics');
+  app.use((req: any, res: any, next: any) => {
+    if (req.url?.includes('/api/v1/health')) return next();
+    metrics.requestsTotal += 1;
+    metrics.inFlight += 1;
+    const t0 = Date.now();
+    res.on('finish', () => {
+      metrics.inFlight -= 1;
+      const ms = Date.now() - t0;
+      if (ms > 1000) metrics.requestsSlow += 1;
+      // eslint-disable-next-line no-console
+      console.log(
+        JSON.stringify({
+          t: new Date().toISOString(),
+          m: req.method,
+          p: req.originalUrl || req.url,
+          s: res.statusCode,
+          ms,
+          ...(ms > 1000 ? { slow: 1 } : {}),
+        }),
+      );
+    });
+    next();
+  });
+
   app.setGlobalPrefix('api/v1');
   // CORS:默认仅同源(开发态由 Vite 代理 /api,无跨域);需要跨域时用 CORS_ORIGIN 显式放开
   const corsOrigin = (process.env.CORS_ORIGIN ?? '').trim();
