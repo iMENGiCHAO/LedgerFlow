@@ -17,9 +17,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
-import { randomUUID } from 'crypto';
-import { existsSync, mkdirSync, writeFileSync, createReadStream } from 'fs';
-import { join } from 'path';
+import { createAttachmentStore, AttachmentStore } from '../../common/attachment-store';
 import { IsArray, IsBoolean, IsInt, IsOptional, IsString } from 'class-validator';
 import { CurrentTid, CurrentUser, OpLog, Perm, SessionUser } from '../../common/decorators';
 import { LedgerService, InitialItem } from './ledger.service';
@@ -52,6 +50,9 @@ class VoucherDto {
 
 @Controller()
 export class LedgerController {
+
+  /** 附件存储驱动(本地/S3 按 ATTACHMENT_DRIVER 配置) */
+  private readonly store: AttachmentStore = createAttachmentStore();
   constructor(
     private readonly ledger: LedgerService,
     private readonly vouchers: VoucherService,
@@ -412,7 +413,7 @@ export class LedgerController {
   @UseInterceptors(FileInterceptor('file'))
   @Perm('voucher:create')
   @OpLog('上传凭证附件')
-  uploadAttachment(
+  async uploadAttachment(
     @CurrentTid() _tenantId: number,
     @CurrentUser() user: SessionUser,
     @Param('id', ParseIntPipe) id: number,
@@ -423,13 +424,8 @@ export class LedgerController {
     if (!allowed.includes(file.mimetype)) throw new BadRequestException('仅支持 jpg/png/pdf 附件');
     if (file.size > 10 * 1024 * 1024) throw new BadRequestException('附件不能超过10MB');
 
-    const dir = process.env.UPLOAD_DIR || './uploads';
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    const monthDir = join(dir, new Date().toISOString().slice(0, 7));
-    if (!existsSync(monthDir)) mkdirSync(monthDir, { recursive: true });
-    const ext = file.mimetype === 'application/pdf' ? '.pdf' : file.mimetype === 'image/png' ? '.png' : '.jpg';
-    const stored = `${randomUUID()}${ext}`;
-    writeFileSync(join(monthDir, stored), file.buffer);
+    const key = this.store.resolveKey(file.mimetype);
+    await this.store.put(key, file.buffer);
 
     return this.prisma.$transaction([
       this.prisma.attachment.create({
@@ -437,7 +433,7 @@ export class LedgerController {
           ownerType: 'voucher',
           ownerId: id,
           fileName: file.originalname,
-          filePath: join(monthDir, stored),
+          filePath: key,
           fileSize: file.size,
           contentType: file.mimetype,
           uploadedBy: user.uid,
@@ -458,7 +454,13 @@ export class LedgerController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const att = await this.prisma.attachment.findUnique({ where: { id } });
-    if (!att || !existsSync(att.filePath)) throw new NotFoundException('附件不存在');
+    if (!att) throw new NotFoundException('附件不存在');
+    let content: Buffer;
+    try {
+      content = await this.store.get(att.filePath);
+    } catch {
+      throw new NotFoundException('附件不存在');
+    }
     // 越权防御:校验附件所属业务(owner)的租户归属
     if (att.ownerType === 'voucher') {
       const v = await this.prisma.voucher.findFirst({ where: { id: att.ownerId, tenantId } });
@@ -472,7 +474,7 @@ export class LedgerController {
     }
     res.setHeader('Content-Type', att.contentType || 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(att.fileName)}`);
-    createReadStream(att.filePath).pipe(res);
+    res.send(content);
     // 抛 marker 防止 EnvelopeInterceptor 再次包装
     throw new ResponseSentError();
   }
