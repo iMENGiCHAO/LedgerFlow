@@ -155,6 +155,66 @@ export class InvoiceService {
     };
   }
 
+  /**
+   * 增值税申报测算(季度,按税率分组明细)
+   * 输出双口径:一般纳税人(应纳=销项-进项可抵扣)与小规模(销售额×征收率,进项不抵扣)
+   * 仅作申报前测算参考,实际申报以税局系统为准。
+   */
+  async vatDeclaration(tenantId: number, year: number, quarter: number) {
+    if (quarter < 1 || quarter > 4) throw new BadRequestException('季度参数不合法(1-4)');
+    const mFrom = (quarter - 1) * 3 + 1;
+    const mTo = mFrom + 2;
+    const from = new Date(`${year}-${String(mFrom).padStart(2, '0')}-01`);
+    const to = new Date(`${year}-${String(mTo).padStart(2, '0')}-31T23:59:59`);
+
+    const rows = await this.prisma.invoice.findMany({
+      where: { tenantId, status: 1, date: { gte: from, lte: to } },
+      orderBy: { date: 'asc' },
+    });
+
+    const group = (io: number) => {
+      const m = new Map<string, { rate: number; count: number; amount: number; tax: number; total: number }>();
+      for (const r of rows) {
+        if (r.io !== io) continue;
+        const rate = Number(r.taxRate);
+        const key = rate.toFixed(4);
+        const g = m.get(key) ?? { rate, count: 0, amount: 0, tax: 0, total: 0 };
+        g.count += 1;
+        g.amount = r2(g.amount + Number(r.amount));
+        g.tax = r2(g.tax + Number(r.taxAmount));
+        g.total = r2(g.total + Number(r.total));
+        m.set(key, g);
+      }
+      return [...m.values()].sort((a, b) => b.rate - a.rate);
+    };
+
+    const sales = group(1);
+    const purchase = group(2);
+    const salesTax = r2(sales.reduce((s, g) => s + g.tax, 0));
+    const salesAmount = r2(sales.reduce((s, g) => s + g.amount, 0));
+    const purchaseTax = r2(purchase.reduce((s, g) => s + g.tax, 0));
+    const invoiceCount = rows.length;
+
+    // 小规模判定:销项税率全部 ≤ 0.03(征收率口径)
+    const isSmallScale = sales.length > 0 && sales.every((g) => g.rate <= 0.0301);
+    const levyRate = isSmallScale ? (sales[0]?.rate ?? 0.03) : 0;
+    return {
+      year,
+      quarter,
+      range: { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) },
+      invoiceCount,
+      sales: { groups: sales, amountTotal: salesAmount, taxTotal: salesTax },
+      purchase: { groups: purchase, amountTotal: r2(purchase.reduce((s, g) => s + g.amount, 0)), taxTotal: purchaseTax },
+      calc: {
+        isSmallScale,
+        levyRate,
+        generalPayable: r2(salesTax - purchaseTax), // 一般纳税人:应纳=销项-可抵扣进项
+        smallPayable: r2(salesAmount * levyRate),   // 小规模:不含税销售额×征收率
+      },
+      notice: '本测算基于发票台账自动汇总,仅供申报参考;实际申报口径以电子税务局系统为准。',
+    };
+  }
+
   /** 销项发票 → 应收单 */
   async toReceivable(tenantId: number, userId: number, invoiceId: number) {
     const inv = await this.prisma.invoice.findFirst({ where: { id: invoiceId, tenantId } });

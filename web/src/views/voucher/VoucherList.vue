@@ -8,6 +8,7 @@
     >
       <template #actions>
         <el-button :icon="Download" @click="onExport" :loading="exporting">导出Excel</el-button>
+        <el-button v-if="auth.hasPerm('voucher:create')" :icon="Upload" @click="impVisible = true">批量导入</el-button>
         <el-button v-if="auth.hasPerm('voucher:create')" type="primary" :icon="Plus" @click="$router.push('/vouchers/new')">
           录入凭证
         </el-button>
@@ -195,6 +196,42 @@
         <el-button type="danger" :loading="redLoading" @click="doRedFlush">确认红冲</el-button>
       </template>
     </el-dialog>
+      <!-- 凭证批量导入对话框 -->
+    <el-dialog v-model="impVisible" title="凭证批量导入(Excel)" width="560px" @closed="impResult = null">
+      <el-steps :active="impResult ? 2 : 1" simple style="margin-bottom: 18px">
+        <el-step title="下载模板填写" />
+        <el-step title="上传导入" />
+      </el-steps>
+      <div class="imp-actions">
+        <el-button :icon="Download" @click="downloadTpl">下载导入模板</el-button>
+        <el-upload
+          :show-file-list="false"
+          :http-request="doImport"
+          accept=".xlsx"
+        >
+          <el-button type="primary" :icon="Upload" :loading="impLoading">选择文件并导入</el-button>
+        </el-upload>
+      </div>
+      <el-alert
+        class="imp-tip"
+        type="info"
+        :closable="false"
+        show-icon
+        title="模板列:日期|摘要|科目编码|借方金额|贷方金额|往来单位|部门"
+        description="科目编码须为末级;日期相同的连续行合为一张凭证,空日期沿用上一行;金额仅填一侧;往来单位/部门按档案名称精确匹配;导入后为草稿状态,需审核记账。"
+      />
+      <template v-if="impResult">
+        <el-result
+          :icon="impResult.failed.length ? 'warning' : 'success'"
+          :title="`导入完成:成功 ${impResult.success} 张 / 共 ${impResult.total} 张`"
+          :sub-title="impResult.failed.length ? '以下凭证未导入(已跳过)' : '全部导入成功,请在列表中审核记账'"
+        />
+        <el-table v-if="impResult.failed.length" :data="impResult.failed" size="small" border>
+          <el-table-column prop="row" label="起始行" width="90" align="center" />
+          <el-table-column prop="reason" label="失败原因" />
+        </el-table>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -202,7 +239,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Plus, Refresh, RefreshLeft, Notebook, Document, Download } from '@element-plus/icons-vue'
+import {Search,Plus,Refresh,RefreshLeft,Notebook,Document,Download,Upload} from '@element-plus/icons-vue'
 import { exportExcel } from '@/utils/exporter'
 import {
   voucherList,
@@ -270,6 +307,46 @@ async function loadPeriods() {
       query.periodId = (open || periods.value[periods.value.length - 1]).id
     }
   } catch { /* ignore */ }
+}
+
+// ==================== Excel 批量导入 ====================
+const impVisible = ref(false)
+const impLoading = ref(false)
+const impResult = ref<any>(null)
+
+async function downloadTpl() {
+  const token = localStorage.getItem('fm_token') || ''
+  const resp = await fetch('/api/v1/vouchers/import-template', { headers: { Authorization: `Bearer ${token}` } })
+  if (!resp.ok) { ElMessage.error('模板下载失败'); return }
+  const blob = await resp.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = '凭证导入模板.xlsx'
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+async function doImport(opt: any) {
+  const fd = new FormData()
+  fd.append('file', opt.file)
+  impLoading.value = true
+  impResult.value = null
+  try {
+    const token = localStorage.getItem('fm_token') || ''
+    const resp = await fetch('/api/v1/vouchers/import', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
+    const j = await resp.json()
+    if (j.code !== 0) { ElMessage.error(j.message || '导入失败'); return }
+    impResult.value = j.data
+    if (impResult.value.success > 0) {
+      ElMessage.success(`成功导入 ${impResult.value.success} 张凭证(草稿)`)
+      loadList()
+    }
+  } catch {
+    ElMessage.error('导入请求失败')
+  } finally {
+    impLoading.value = false
+  }
 }
 
 async function copyRow(row: any) {
@@ -655,4 +732,6 @@ html.dark .source-tag { background: rgba(129,140,248,0.12); color: var(--fm-bran
 .red-tip { margin-bottom: 14px; }
 
 .voucher-filter { border: none; background: var(--fm-bg-muted); border-radius: 0; }
+.imp-actions { display: flex; gap: 12px; margin: 12px 0 16px; }
+.imp-tip { margin-bottom: 4px; }
 </style>

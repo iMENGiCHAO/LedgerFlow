@@ -199,6 +199,70 @@ export class VoucherService {
     throw new BadRequestException('凭证编号分配失败,请重试');
   }
 
+  /**
+   * Excel 批量导入凭证(草稿):
+   * 行格式 [日期, 摘要, 科目编码, 借方金额, 贷方金额];连续相同日期的行合为一张凭证;摘要空则沿用上一行。
+   * 逐张创建,失败行(组)记录原因后继续,返回汇总。
+   */
+  async importBatch(tenantId: number, userId: number, rawRows: Array<{ rowNo: number; date: string; summary: string; subjectCode: string; debit: number; credit: number; partnerName: string; deptName: string }>) {
+    const subjects = await this.balance.subjectsOf(tenantId);
+    const byCode = new Map(subjects.filter((s) => s.isLeaf).map((s) => [s.code, s]));
+    const [partners, depts] = await Promise.all([
+      this.prisma.partner.findMany({ where: { tenantId }, select: { id: true, name: true } }),
+      this.prisma.department.findMany({ where: { tenantId }, select: { id: true, name: true } }),
+    ]);
+    const partnerByName = new Map(partners.map((p) => [p.name, p.id]));
+    const deptByName = new Map(depts.map((d) => [d.name, d.id]));
+
+    // 按日期分组(连续相同日期合一张)
+    const groups: Array<{ date: string; startRow: number; lines: typeof rawRows }> = [];
+    for (const r of rawRows) {
+      const last = groups[groups.length - 1];
+      if (last && last.date === r.date) {
+        last.lines.push(r);
+      } else {
+        groups.push({ date: r.date, startRow: r.rowNo, lines: [r] });
+      }
+    }
+
+    let success = 0;
+    const failed: Array<{ row: number; reason: string }> = [];
+    let lastSummary = '';
+    for (const g of groups) {
+      try {
+        const entries = g.lines.map((r) => {
+          let summary = (r.summary || '').trim() || lastSummary;
+          if (r.summary?.trim()) lastSummary = summary;
+          const subject = byCode.get((r.subjectCode || '').trim());
+          if (!subject) throw new Error(`科目编码 ${r.subjectCode} 不存在或非末级`);
+          let partnerId: number | null = null;
+          if (r.partnerName) {
+            partnerId = partnerByName.get(r.partnerName) ?? null;
+            if (!partnerId) throw new Error(`往来单位「${r.partnerName}」不存在`);
+          }
+          let departmentId: number | null = null;
+          if (r.deptName) {
+            departmentId = deptByName.get(r.deptName) ?? null;
+            if (!departmentId) throw new Error(`部门「${r.deptName}」不存在`);
+          }
+          return {
+            summary,
+            subjectId: subject.id,
+            debit: r.debit || 0,
+            credit: r.credit || 0,
+            partnerId,
+            departmentId,
+          };
+        });
+        await this.create(tenantId, userId, { date: g.date, entries, word: '记' });
+        success += 1;
+      } catch (err: any) {
+        failed.push({ row: g.startRow, reason: err?.response?.message || err?.message || String(err) });
+      }
+    }
+    return { success, failed, total: groups.length };
+  }
+
   detailInclude() {
     return {
       entries: {

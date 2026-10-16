@@ -224,6 +224,97 @@ export class LedgerController {
     return { list: rows.map((r) => ({ text: r.text, count: Number(r.cnt) })) };
   }
 
+  /** 凭证 Excel 批量导入(列:日期|摘要|科目编码|借方金额|贷方金额;连续相同日期合为一张) */
+  @Post('vouchers/import')
+  @UseInterceptors(FileInterceptor('file'))
+  @Perm('voucher:create')
+  @OpLog('凭证批量导入')
+  async importVouchers(
+    @CurrentTid() tenantId: number,
+    @CurrentUser() user: SessionUser,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('未收到文件');
+    if (file.size > 5 * 1024 * 1024) throw new BadRequestException('导入文件不能超过 5MB');
+    const ExcelJS = (await import('exceljs')).default;
+    const wb = new ExcelJS.Workbook();
+    try {
+      await wb.xlsx.load(file.buffer as any);
+    } catch {
+      throw new BadRequestException('无法解析 xlsx 文件,请使用下载的模板填写');
+    }
+    const ws = wb.worksheets[0];
+    if (!ws) throw new BadRequestException('Excel 无工作表');
+
+    const rawRows: Array<{ rowNo: number; date: string; summary: string; subjectCode: string; debit: number; credit: number; partnerName: string; deptName: string }> = [];
+    let lastDate: string | null = null;
+    ws.eachRow((row, rowNo) => {
+      if (rowNo < 2) return; // 跳过表头
+      const c = (idx: number) => {
+        const cell = row.getCell(idx);
+        if (cell.value instanceof Date) return cell.value;
+        if (cell.value && typeof cell.value === 'object' && 'text' in (cell.value as any)) return String((cell.value as any).text);
+        if (cell.value && typeof cell.value === 'object' && 'result' in (cell.value as any)) return Number((cell.value as any).result);
+        return cell.value as any;
+      };
+      const dateRaw = c(1);
+      const summary = String(c(2) ?? '').trim();
+      const subjectCode = String(c(3) ?? '').trim();
+      const debit = Number(c(4) ?? 0) || 0;
+      const credit = Number(c(5) ?? 0) || 0;
+      const partnerName = String(c(6) ?? '').trim();
+      const deptName = String(c(7) ?? '').trim();
+      if (!subjectCode && !debit && !credit) return; // 科目与金额全空(空行/说明行)跳过
+      let date: string;
+      if (dateRaw instanceof Date) {
+        date = dateRaw.toISOString().slice(0, 10);
+      } else if (!String(dateRaw ?? '').trim()) {
+        // 空日期=沿用上一行(同张凭证的多行分录)
+        if (!lastDate) throw new BadRequestException(`第 ${rowNo} 行缺少日期`);
+        date = lastDate;
+      } else {
+        const d = new Date(String(dateRaw));
+        if (isNaN(d.getTime())) throw new BadRequestException(`第 ${rowNo} 行日期格式错误(应为 YYYY-MM-DD)`);
+        date = d.toISOString().slice(0, 10);
+      }
+      lastDate = date;
+      rawRows.push({ rowNo, date, summary, subjectCode, debit, credit, partnerName, deptName });
+    });
+    if (!rawRows.length) throw new BadRequestException('未解析到有效数据行(模板表头:日期|摘要|科目编码|借方金额|贷方金额)');
+    return this.vouchers.importBatch(tenantId, user.uid, rawRows);
+  }
+
+  /** 凭证导入模板下载 */
+  @Get('vouchers/import-template')
+  @Perm('voucher:create')
+  async importTemplate(@CurrentTid() tenantId: number, @Res({ passthrough: true }) res: Response) {
+    const ExcelJS = (await import('exceljs')).default;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('凭证导入');
+    ws.addRow(['日期', '摘要', '科目编码', '借方金额', '贷方金额', '往来单位', '部门']);
+    ws.addRow(['2026-02-15', '收到货款', '100201', 10000, '', '华辰科技股份有限公司', '']);
+    ws.addRow(['', '收到货款', '1122', '', 10000, '华辰科技股份有限公司', '']);
+    ws.addRow(['2026-02-16', '支付办公费', '560201', 500, '', '', '综合部']);
+    ws.addRow(['', '支付办公费', '1001', '', 500, '', '']);
+    ws.addRow([]);
+    const tip = ws.addRow(['说明:科目编码必须为末级(如 100201);日期相同的连续行合为一张凭证;空日期沿用上一行;金额仅填一侧;往来单位/部门按档案名称精确匹配,辅助核算科目必填。']);
+    tip.font = { italic: true, size: 9, color: { argb: 'FF999999' } };
+    ws.getRow(1).font = { bold: true };
+    ws.getColumn(1).width = 14;
+    ws.getColumn(2).width = 30;
+    ws.getColumn(3).width = 12;
+    ws.getColumn(4).width = 12;
+    ws.getColumn(5).width = 12;
+    ws.getColumn(6).width = 22;
+    ws.getColumn(7).width = 14;
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    const buf = await wb.xlsx.writeBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="voucher-import-template.xlsx"`);
+    res.send(Buffer.from(buf));
+    throw new ResponseSentError();
+  }
+
   @Get('vouchers/:id')
   @Perm('ledger:view')
   getVoucher(@CurrentTid() tenantId: number, @Param('id', ParseIntPipe) id: number) {

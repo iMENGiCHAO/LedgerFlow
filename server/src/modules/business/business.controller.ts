@@ -9,7 +9,7 @@ import { ExpenseService } from './expense.service';
 import { AssetService } from './asset.service';
 import { DashboardService } from './dashboard.service';
 import { PrismaService } from '../../prisma.service';
-import { buildXlsx, sendXlsx } from '../../common/excel';
+import { buildXlsx, sendXlsx, ExcelSheet } from '../../common/excel';
 
 class BillDto {
   @IsInt()
@@ -310,6 +310,26 @@ export class BusinessController {
     return this.invoices.vatSummary(tenantId, year);
   }
 
+  /** 增值税申报测算(季度,按税率分组;format=xlsx 导出表样) */
+  @Get('invoices/vat-declaration')
+  @Perm('report:view')
+  async vatDeclaration(
+    @CurrentTid() tenantId: number,
+    @Query('year', ParseIntPipe) year: number,
+    @Query('quarter', ParseIntPipe) quarter: number,
+    @Query('format') format: 'xlsx' | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const data = await this.invoices.vatDeclaration(tenantId, year, quarter);
+    if (format === 'xlsx') {
+      const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+      const buf = await buildVatXlsx(tenant?.name || '', data);
+      sendXlsx(res, buf, `增值税申报测算-${year}Q${quarter}.xlsx`);
+      return;
+    }
+    return data;
+  }
+
   // ==================== 资金管理 ====================
   @Get('fund/accounts')
   @Perm('fund:manage')
@@ -598,4 +618,46 @@ export class BusinessController {
   dashboardSummary(@CurrentTid() tenantId: number) {
     return this.dashboard.summaryCached(tenantId);
   }
+}
+
+/** 增值税申报测算 xlsx(销项/进项分组 + 测算结论) */
+async function buildVatXlsx(company: string, data: any) {
+  const r2v = (x: number) => Math.round(x * 100) / 100;
+  const sheet = (name: string, amountLabel: string, groups: any[], amountTotal: number, taxTotal: number): ExcelSheet => ({
+    name,
+    columns: [
+      { header: '税率/征收率', key: 'rate', width: 14, align: 'center', format: (r: any) => (r.count === '' ? '合计' : (r.rate * 100).toFixed(2) + '%') },
+      { header: '发票张数', key: 'count', width: 12, align: 'center' },
+      { header: amountLabel, key: 'amount', width: 18, numFmt: '#,##0.00' },
+      { header: '税额', key: 'tax', width: 16, numFmt: '#,##0.00' },
+      { header: '价税合计', key: 'total', width: 18, numFmt: '#,##0.00' },
+    ],
+    rows: [
+      ...groups.map((g: any) => ({ rate: g.rate, count: g.count, amount: g.amount, tax: g.tax, total: g.total })),
+      { rate: 0, count: '', amount: amountTotal, tax: taxTotal, total: r2v(amountTotal + taxTotal) },
+    ],
+  });
+  const calcRows: any[] = [
+    { item: '一般纳税人口径:应纳增值税 = 销项税额 - 可抵扣进项税额', value: data.calc.generalPayable },
+  ];
+  if (data.calc.isSmallScale) {
+    calcRows.push({ item: '小规模口径:不含税销售额 x 征收率(' + (data.calc.levyRate * 100).toFixed(1) + '%)', value: data.calc.smallPayable });
+  }
+  calcRows.push({ item: '发票总张数', value: data.invoiceCount });
+  return buildXlsx({
+    filename: '增值税申报测算-' + data.year + 'Q' + data.quarter,
+    companyName: company,
+    sheets: [
+      sheet('销项汇总', '不含税销售额', data.sales.groups, data.sales.amountTotal, data.sales.taxTotal),
+      sheet('进项汇总', '不含税采购额', data.purchase.groups, data.purchase.amountTotal, data.purchase.taxTotal),
+      {
+        name: '测算结论',
+        columns: [
+          { header: '项目', key: 'item', width: 56 },
+          { header: '金额/数值', key: 'value', width: 18, numFmt: '0.00' },
+        ],
+        rows: calcRows.map((r: any) => ({ item: r.item, value: typeof r.value === 'number' ? r.value : String(r.value) })),
+      },
+    ],
+  });
 }

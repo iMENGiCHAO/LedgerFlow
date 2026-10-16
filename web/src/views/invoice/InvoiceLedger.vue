@@ -12,6 +12,7 @@
         </el-select>
         <el-button :icon="Download" @click="onExport" :loading="exporting">导出Excel</el-button>
         <el-button :icon="Upload" @click="openImportDialog">批量导入</el-button>
+        <el-button :icon="DataAnalysis" @click="openDeclDialog">申报测算</el-button>
         <el-button type="primary" :icon="Plus" @click="openSaveDialog">登记发票</el-button>
       </template>
     </PageHeader>
@@ -128,7 +129,8 @@
         <template #empty>
           <EmptyState title="暂无发票记录" description="可通过右上角「登记发票」或「批量导入」录入">
             <template #action>
-              <el-button type="primary" :icon="Plus" @click="openSaveDialog">登记发票</el-button>
+              <el-button :icon="DataAnalysis" @click="openDeclDialog">申报测算</el-button>
+        <el-button type="primary" :icon="Plus" @click="openSaveDialog">登记发票</el-button>
             </template>
           </EmptyState>
         </template>
@@ -220,6 +222,66 @@
         <el-button type="primary" :loading="importing" @click="submitImport">开始导入</el-button>
       </template>
     </el-dialog>
+      <!-- 增值税申报测算对话框 -->
+    <el-dialog v-model="declVisible" :title="`增值税申报测算 ${decl.year} 年第 ${decl.quarter} 季度`" width="760px">
+      <div class="decl-toolbar">
+        <el-select v-model="decl.year" style="width:110px" @change="loadDecl">
+          <el-option v-for="y in declYears" :key="y" :value="y" :label="`${y} 年`" />
+        </el-select>
+        <el-select v-model="decl.quarter" style="width:130px" @change="loadDecl">
+          <el-option :value="1" label="第一季度(1-3月)" />
+          <el-option :value="2" label="第二季度(4-6月)" />
+          <el-option :value="3" label="第三季度(7-9月)" />
+          <el-option :value="4" label="第四季度(10-12月)" />
+        </el-select>
+        <el-button :icon="Download" :loading="declExporting" @click="exportDecl">导出Excel</el-button>
+      </div>
+      <template v-if="declData">
+        <h4 class="decl-h">销项发票(按税率分组)</h4>
+        <el-table :data="declData.sales.groups" size="small" border>
+          <el-table-column label="税率" width="90" align="center">
+            <template #default="{ row }">{{ (row.rate * 100).toFixed(2) }}%</template>
+          </el-table-column>
+          <el-table-column prop="count" label="张数" width="80" align="center" />
+          <el-table-column label="不含税销售额" align="right">
+            <template #default="{ row }">{{ fmtMoney(row.amount) }}</template>
+          </el-table-column>
+          <el-table-column label="税额" align="right">
+            <template #default="{ row }">{{ fmtMoney(row.tax) }}</template>
+          </el-table-column>
+          <el-table-column label="价税合计" align="right">
+            <template #default="{ row }">{{ fmtMoney(row.total) }}</template>
+          </el-table-column>
+        </el-table>
+        <h4 class="decl-h">进项发票(按税率分组)</h4>
+        <el-table :data="declData.purchase.groups" size="small" border>
+          <el-table-column label="税率" width="90" align="center">
+            <template #default="{ row }">{{ (row.rate * 100).toFixed(2) }}%</template>
+          </el-table-column>
+          <el-table-column prop="count" label="张数" width="80" align="center" />
+          <el-table-column label="不含税采购额" align="right">
+            <template #default="{ row }">{{ fmtMoney(row.amount) }}</template>
+          </el-table-column>
+          <el-table-column label="税额" align="right">
+            <template #default="{ row }">{{ fmtMoney(row.tax) }}</template>
+          </el-table-column>
+          <el-table-column label="价税合计" align="right">
+            <template #default="{ row }">{{ fmtMoney(row.total) }}</template>
+          </el-table-column>
+        </el-table>
+        <el-alert
+          class="decl-alert"
+          :type="declData.calc.isSmallScale ? 'info' : 'success'"
+          :closable="false"
+          show-icon
+          :title="`应纳增值税(一般纳税人口径):${fmtMoney(declData.calc.generalPayable)} · 发票 ${declData.invoiceCount} 张`"
+          :description="declData.calc.isSmallScale
+            ? `小规模口径参考:销售额 ${fmtMoney(declData.sales.amountTotal)} × 征收率 ${(declData.calc.levyRate * 100).toFixed(1)}% = ${fmtMoney(declData.calc.smallPayable)};${declData.notice}`
+            : declData.notice"
+        />
+      </template>
+      <el-empty v-else-if="!declLoading" description="该季度暂无有效发票" :image-size="60" />
+    </el-dialog>
   </div>
 </template>
 
@@ -227,14 +289,9 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox, FormInstance, FormRules } from 'element-plus'
-import {
-  Tickets, TopRight, BottomLeft, Coin, Plus, Search, Upload, InfoFilled, Download,
-} from '@element-plus/icons-vue'
+import {Tickets,TopRight,BottomLeft,Coin,Plus,Search,Upload,InfoFilled,Download,DataAnalysis} from '@element-plus/icons-vue'
 import { exportExcel } from '@/utils/exporter'
-import {
-  invoiceList, invoiceSave, invoiceImportCsv, invoiceVatSummary,
-  invoiceToReceivable, invoiceRemove, partnerList,
-} from '@/api/modules'
+import {invoiceList,invoiceSave,invoiceImportCsv,invoiceVatSummary,invoiceToReceivable,invoiceRemove,partnerList,invoiceVatDeclaration} from '@/api/modules'
 import { fmtDate, fmtMoney, toNum, INVOICE_STATUS } from '@/utils/format'
 import PageHeader from '@/components/PageHeader.vue'
 import SectionCard from '@/components/SectionCard.vue'
@@ -406,6 +463,39 @@ async function submitImport() {
   } finally { importing.value = false }
 }
 
+// ==================== 增值税申报测算 ====================
+const declVisible = ref(false)
+const declLoading = ref(false)
+const declExporting = ref(false)
+const declData = ref<any>(null)
+const decl = reactive({ year: 2026, quarter: 1 })
+const declYears = [2024, 2025, 2026, 2027]
+
+async function openDeclDialog() {
+  declVisible.value = true
+  await loadDecl()
+}
+
+async function loadDecl() {
+  declLoading.value = true
+  declData.value = null
+  try {
+    declData.value = await invoiceVatDeclaration(decl.year, decl.quarter)
+  } catch { /* 拦截器已提示 */ } finally { declLoading.value = false }
+}
+
+async function exportDecl() {
+  declExporting.value = true
+  try {
+    await exportExcel({
+      url: '/invoices/vat-declaration',
+      filename: `增值税申报测算-${decl.year}Q${decl.quarter}`,
+      params: { year: decl.year, quarter: decl.quarter },
+      loadingText: '增值税申报测算 Excel',
+    })
+  } finally { declExporting.value = false }
+}
+
 onMounted(() => {
   loadVatSummary()
   query()
@@ -487,4 +577,7 @@ html.dark .io-in { background: rgba(99,102,241,0.15); color: var(--fm-brand-300)
 .import-tip :deep(.el-alert__content) { line-height: 1.6; }
 .import-result { margin-top: 14px; }
 .err-line { margin-top: 6px; font-size: 12px; color: var(--fm-danger); }
+.decl-toolbar { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; }
+.decl-h { margin: 14px 0 8px; font-size: 14px; }
+.decl-alert { margin-top: 16px; }
 </style>

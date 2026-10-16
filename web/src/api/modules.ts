@@ -128,6 +128,9 @@ export const invoiceList = (params?: Record<string, unknown>) => client.get('/in
 export const invoiceSave = (data: Record<string, unknown>) => client.post('/invoices', data)
 export const invoiceImportCsv = (csv: string) => client.post('/invoices/import-csv', { csv })
 export const invoiceVatSummary = (year: number) => client.get('/invoices/vat-summary', { params: { year } }).then(Adapters.vatSummary)
+
+export const invoiceVatDeclaration = (year: number, quarter: number): Promise<any> =>
+  client.get('/invoices/vat-declaration', { params: { year, quarter } })
 export const invoiceToReceivable = (id: number) => client.post(`/invoices/${id}/to-receivable`)
 export const invoiceRemove = (id: number) => client.delete(`/invoices/${id}`)
 
