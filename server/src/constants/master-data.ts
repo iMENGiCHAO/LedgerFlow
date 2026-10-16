@@ -139,14 +139,14 @@ export const ROLE_PRESETS: { code: string; name: string; perms: string[] | 'ALL'
   {
     code: 'CFO',
     name: '财务主管',
-    perms: ['md:manage', 'ledger:init', 'voucher:create', 'voucher:audit', 'ledger:view', 'closing:execute', 'report:view', 'arap:manage', 'invoice:manage', 'fund:manage', 'expense:approve', 'expense:pay', 'asset:manage', 'dashboard:view'],
-    remark: '建账、审核、结账、报表复核',
+    perms: ['md:manage', 'ledger:init', 'voucher:create', 'voucher:audit', 'ledger:view', 'closing:execute', 'report:view', 'arap:manage', 'invoice:manage', 'fund:manage', 'expense:approve', 'expense:pay', 'asset:manage', 'dashboard:view', 'payroll:manage'],
+    remark: '建账、审核、结账、报表复核、工资核算',
   },
   {
     code: 'ACCOUNTANT',
     name: '会计',
-    perms: ['voucher:create', 'ledger:view', 'report:view', 'arap:manage', 'invoice:manage', 'asset:manage', 'expense:create'],
-    remark: '凭证录入、往来核销、折旧计提',
+    perms: ['voucher:create', 'ledger:view', 'report:view', 'arap:manage', 'invoice:manage', 'asset:manage', 'expense:create', 'payroll:manage'],
+    remark: '凭证录入、往来核销、折旧计提、工资录入',
   },
   {
     code: 'CASHIER',

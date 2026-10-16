@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { BusinessController } from './business.controller';
 import { ArapService } from './arap.service';
 import { InvoiceService } from './invoice.service';
+import { PayrollService } from './payroll.service';
 import { FundService } from './fund.service';
 import { ExpenseService } from './expense.service';
 import { AssetService } from './asset.service';
@@ -22,6 +23,7 @@ import { ReportService } from '../report/report.service';
     BalanceService,
     VoucherService,
     ReportService,
+    PayrollService,
   ],
 })
 export class BusinessModule {}

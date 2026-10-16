@@ -212,6 +212,7 @@ model Employee {
   status   Int    @default(1)
 
   dept Department? @relation("empDept", fields: [deptId], references: [id])
+  payrollItems PayrollItem[]
 
   @@unique([tenantId, code])
 }
@@ -222,6 +223,49 @@ model SummaryLib {
   text     String
   usageCount Int  @default(0)
 
+  @@index([tenantId])
+}
+
+// ==================== 工资核算 ====================
+/** 月度工资批次(整月一次计提/一次发放,凭证挂在批次上) */
+model PayrollBatch {
+  id              Int      @id @default(autoincrement())
+  tenantId        Int
+  year            Int
+  month           Int
+  /** 1 编辑中 2 已计提 3 已发放 */
+  status          Int      @default(1)
+  accrueVoucherId Int?
+  payVoucherId    Int?
+  createdBy       Int
+  createdAt       DateTime @default(now())
+  items           PayrollItem[]
+
+  @@unique([tenantId, year, month])
+}
+
+/** 工资单行(按员工) */
+model PayrollItem {
+  id         Int     @id @default(autoincrement())
+  tenantId   Int
+  batchId    Int
+  employeeId Int
+  /** 应发合计 */
+  gross      Decimal @db.Decimal(18, 2)
+  /** 代扣社保(个人部分) */
+  socialIns  Decimal @default(0) @db.Decimal(18, 2)
+  /** 代扣个税 */
+  tax        Decimal @default(0) @db.Decimal(18, 2)
+  /** 其他扣款(病假等) */
+  otherDed   Decimal @default(0) @db.Decimal(18, 2)
+  /** 实发 = 应发 - 社保 - 个税 - 其他 */
+  net        Decimal @db.Decimal(18, 2)
+  remark     String?
+
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  batch      PayrollBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@unique([batchId, employeeId])
   @@index([tenantId])
 }
 

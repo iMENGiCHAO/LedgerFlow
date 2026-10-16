@@ -31,7 +31,8 @@ const routes = [
       // 期末处理
       { path: 'closing', name: 'closing', component: () => import('@/views/closing/Closing.vue'), meta: { title: '期末处理', perm: ['closing:execute', 'asset:manage'] } },
       // 账簿报表
-      { path: 'reports/balance-summary', name: 'balanceSummary', component: () => import('@/views/report/BalanceSummary.vue'), meta: { title: '科目余额表', perm: ['ledger:view'], group: '账簿报表' } },
+      { path: 'payrolls', name: 'payroll', component: () => import('@/views/payroll/Payroll.vue'), meta: { title: '工资核算', perm: ['payroll:manage'], group: '业务核算' } },
+            { path: 'reports/balance-summary', name: 'balanceSummary', component: () => import('@/views/report/BalanceSummary.vue'), meta: { title: '科目余额表', perm: ['ledger:view'], group: '账簿报表' } },
       { path: 'reports/detail-ledger', name: 'detailLedger', component: () => import('@/views/report/DetailLedger.vue'), meta: { title: '明细账', perm: ['ledger:view'], group: '账簿报表' } },
       // 财务报表
       { path: 'reports/balance-sheet', name: 'balanceSheet', component: () => import('@/views/report/BalanceSheet.vue'), meta: { title: '资产负债表', perm: ['report:view'], group: '财务报表' } },

@@ -293,6 +293,7 @@ const MENU_GROUPS: MenuGroup[] = [
       { title: '发票台账', icon: Tickets, path: '/invoices', perm: ['invoice:manage'] },
       { title: '资金管理', icon: Wallet, path: '/fund', perm: ['fund:manage'] },
       { title: '固定资产', icon: Box, path: '/assets', perm: ['asset:manage'] },
+      { title: '工资核算', icon: Coin, path: '/payrolls', perm: ['payroll:manage'] },
     ],
   },
   {

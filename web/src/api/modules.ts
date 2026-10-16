@@ -131,6 +131,11 @@ export const invoiceVatSummary = (year: number) => client.get('/invoices/vat-sum
 
 export const invoiceVatDeclaration = (year: number, quarter: number): Promise<any> =>
   client.get('/invoices/vat-declaration', { params: { year, quarter } })
+
+export const payrollBatch = (year: number, month: number): Promise<any> => client.get('/payrolls', { params: { year, month } })
+export const payrollSaveItems = (id: number, items: any[]): Promise<any> => client.post(`/payrolls/${id}/items`, { items })
+export const payrollAccrue = (id: number): Promise<any> => client.post(`/payrolls/${id}/accrue`)
+export const payrollPay = (id: number): Promise<any> => client.post(`/payrolls/${id}/pay`)
 export const invoiceToReceivable = (id: number) => client.post(`/invoices/${id}/to-receivable`)
 export const invoiceRemove = (id: number) => client.delete(`/invoices/${id}`)
 

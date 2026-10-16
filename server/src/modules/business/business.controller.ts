@@ -4,6 +4,7 @@ import { IsArray, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString } from '
 import { CurrentTid, CurrentUser, OpLog, Perm, SessionUser } from '../../common/decorators';
 import { ArapService } from './arap.service';
 import { InvoiceService } from './invoice.service';
+import { PayrollService } from './payroll.service';
 import { FundService } from './fund.service';
 import { ExpenseService } from './expense.service';
 import { AssetService } from './asset.service';
@@ -150,6 +151,7 @@ export class BusinessController {
     private readonly assets: AssetService,
     private readonly dashboard: DashboardService,
     private readonly prisma: PrismaService,
+    private readonly payrolls: PayrollService,
   ) {}
 
   // ==================== 应收应付 ====================
@@ -328,6 +330,51 @@ export class BusinessController {
       return;
     }
     return data;
+  }
+
+  // ==================== 工资核算 ====================
+
+  /** 查询/初始化月度工资批次(行按在册员工生成,金额待录入) */
+  @Get('payrolls')
+  @Perm('payroll:manage')
+  async payrollBatch(
+    @CurrentTid() tenantId: number,
+    @CurrentUser() user: SessionUser,
+    @Query('year', ParseIntPipe) year: number,
+    @Query('month', ParseIntPipe) month: number,
+  ) {
+    return this.payrolls.batch(tenantId, year, month, user.uid);
+  }
+
+  /** 批量保存工资行 */
+  @Post('payrolls/:id/items')
+  @HttpCode(200)
+  @Perm('payroll:manage')
+  @OpLog('工资单保存')
+  savePayrollItems(
+    @CurrentTid() tenantId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { items: Array<{ employeeId: number; gross: number; socialIns?: number; tax?: number; otherDed?: number; remark?: string }> },
+  ) {
+    return this.payrolls.saveItems(tenantId, id, body.items || []);
+  }
+
+  /** 计提工资(生成凭证 借560204/贷2211,提交待审) */
+  @Post('payrolls/:id/accrue')
+  @HttpCode(200)
+  @Perm('payroll:manage')
+  @OpLog('工资计提')
+  accruePayroll(@CurrentTid() tenantId: number, @CurrentUser() user: SessionUser, @Param('id', ParseIntPipe) id: number) {
+    return this.payrolls.accrue(tenantId, id, user.uid);
+  }
+
+  /** 发放工资(生成凭证 借2211/贷100201 实发/贷2241 代扣) */
+  @Post('payrolls/:id/pay')
+  @HttpCode(200)
+  @Perm('payroll:manage')
+  @OpLog('工资发放')
+  payPayroll(@CurrentTid() tenantId: number, @CurrentUser() user: SessionUser, @Param('id', ParseIntPipe) id: number) {
+    return this.payrolls.pay(tenantId, id, user.uid);
   }
 
   // ==================== 资金管理 ====================
