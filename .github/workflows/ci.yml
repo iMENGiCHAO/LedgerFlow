@@ -44,9 +44,9 @@ jobs:
 
       - name: 安装依赖(含 prisma generate)
         run: |
-          pnpm install --frozen-lockfile
+          pnpm install --frozen-lockfile || true
           pnpm approve-builds --all || true
-          pnpm rebuild || true
+          pnpm install --frozen-lockfile
 
       - name: 初始化数据库(建表 + 种子)
         run: |
@@ -92,9 +92,9 @@ jobs:
 
       - name: 安装依赖
         run: |
-          pnpm install --frozen-lockfile
+          pnpm install --frozen-lockfile || true
           pnpm approve-builds --all || true
-          pnpm rebuild || true
+          pnpm install --frozen-lockfile
 
       - name: 生产构建
         run: pnpm build
