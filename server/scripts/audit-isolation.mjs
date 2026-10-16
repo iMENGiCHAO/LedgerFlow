@@ -38,14 +38,14 @@ async function main() {
   if (!token) throw new Error('admin 登录失败:' + JSON.stringify(login.json));
   check('admin 登录', true);
 
-  // 2) 创建审计对照账套(若已存在则复用)
-  let tid = null;
-  const create = await api('POST', '/tenants', { token, body: { name: '审计对照公司', year: 2026, month: 1 } });
-  if (create.json?.data?.id) tid = create.json.data.id;
-  else {
-    const list = await api('GET', '/tenants', { token });
-    const found = (list.json?.data?.list || list.json?.data || []).find?.((t) => t.name === '审计对照公司');
-    tid = found?.id ?? null;
+  // 2) 审计对照账套:先查后建
+  const list0 = await api('GET', '/tenants', { token });
+  const arr0 = Array.isArray(list0.json?.data) ? list0.json.data : (list0.json?.data?.list || []);
+  const existing = arr0.find?.((t) => t.name === '审计对照公司');
+  let tid = existing?.id ?? null;
+  if (!tid) {
+    const create = await api('POST', '/tenants', { token, body: { name: '审计对照公司', startYear: 2026, startMonth: 1 } });
+    tid = create.json?.data?.id ?? null;
   }
   check('创建/复用审计账套', !!tid, `tid=${tid}`);
   if (!tid) throw new Error('无法获得审计账套');
