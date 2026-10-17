@@ -123,6 +123,14 @@ bash scripts/start-prod.sh
 
 浏览器打开 [http://localhost:5173](http://localhost:5173) 即可使用。
 
+### 或 Docker 一键栈(含 PostgreSQL)
+
+```bash
+# 演示模式(自动灌种子数据)
+DEMO_MODE=1 docker compose up -d
+# 浏览器打开 http://localhost:8080(生产部署 checklist 见 docs/DEPLOY.md)
+```
+
 ### 演示账号
 
 | 账号 | 密码 | 角色 | 典型操作 |
@@ -192,6 +200,7 @@ pg_restore -h 127.0.0.1 -U $PGUSER -d financial_mgmt --clean backup.dump
 - **API 接口**:`docs/API-REFERENCE.md` ← REST API 完整清单;`docs/openapi.json` ← OpenAPI 3.1
 - **AI 智能体接入**:`docs/MCP-GUIDE.md` ← Claude Desktop / Cursor 配置 MCP
 - **使用手册**:`docs/系统使用说明.md` ← 也集成在系统 `/help` 页面
+- **变更记录**:`CHANGELOG.md` ← 版本历史
 - 历史:总体设计 `docs/财务管理系统开发文档.md` | 详细设计 `docs/开发详细设计文档.md` | 验收 `docs/验收报告.md` | 改进计划 `docs/不足与优化计划.md`
 
 ## 安全说明(交付默认值,生产请调整)

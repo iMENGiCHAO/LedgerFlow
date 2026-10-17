@@ -1,0 +1,38 @@
+# LedgerFlow 一键栈:PostgreSQL + 后端 API + 前端(Nginx)
+# 用法:docker compose up -d → 浏览器打开 http://localhost:8080
+# 演示数据:DEMO_MODE=1 docker compose up -d(首次建库后灌种子)
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ledger
+      POSTGRES_PASSWORD: ledger_pg_pw_change_me
+      POSTGRES_DB: financial_mgmt
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledger"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  server:
+    build: ./server
+    environment:
+      DATABASE_URL: postgresql://ledger:ledger_pg_pw_change_me@db:5432/financial_mgmt?schema=public
+      JWT_SECRET: change_me_to_random_48_bytes_in_production
+      PORT: "3100"
+      DEMO_MODE: "${DEMO_MODE:-0}"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: ./web
+    ports:
+      - "8080:80"
+    depends_on:
+      - server
+
+volumes:
+  pgdata:

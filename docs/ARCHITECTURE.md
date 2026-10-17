@@ -223,6 +223,38 @@ if (q.format === 'xlsx'):
 
 ---
 
+## 6a. 2026-10 新增架构(本轮交付加固)
+
+### 6a.1 AI 智能体接入(MCP)
+独立进程 `server/src/mcp/server.ts`(stdio 传输,`pnpm run mcp` 启动):
+官方 @modelcontextprotocol/sdk,暴露 10 个财务工具;**全部调用走既有 REST API**
+(登录换 JWT → HTTP),因此鉴权/RBAC/操作日志/借贷平衡/期间锁/制审分离零旁路;
+create_voucher 支持 departmentName 按档案名称匹配部门辅助。冒烟:`scripts/mcp-smoke.mjs`(真实 JSON-RPC,已入 CI)。
+
+### 6a.2 附件存储抽象
+`server/src/common/attachment-store.ts`:接口 + LocalDiskStore(默认,历史绝对路径兼容)
++ S3Store(动态 require @aws-sdk/client-s3);`ATTACHMENT_DRIVER=local|s3` 切换;
+数据库只存逻辑键 `YYYY-MM/uuid.ext`,换后端零迁移。
+
+### 6a.3 令牌安全
+- refresh 端点吊销校验(注销后 refresh 立即失效);
+- TokenBlacklist 双写(内存热路径 + TokenRevocation 落库,启动恢复,重启不复活);
+- 前端 401 静默续期(单飞刷新 + 请求重放一次)。
+
+### 6a.4 工资核算
+PayrollBatch/PayrollItem 双模型;计提按员工部门拆分借方(辅助核算强校验);
+**红冲工资凭证自动回退批次状态**(计提凭证红冲→编辑中;发放凭证红冲→已计提),
+联动点在 voucher.service.redFlush,防账实脱节。
+
+### 6a.5 现金流量表
+`constants/cash-flow.ts`(32 行表样 + 科目前缀映射) + `report/cashflow-classify.ts`
+(对方科目归集法纯函数:现金↔现金跳过、一对多按比例分摊、未映射落其他经营);
+勾稽:净增加额 = 期末现金余额 − 期初(±0.01)。单测 10 项覆盖归集边界。
+
+### 6a.6 观测与 CI
+访问日志一行 JSON(>1s 标 slow);health 暴露 runtime/metrics/db 延迟;
+GitHub Actions:PG16 service + 单测 31 + E2E 44 + 隔离审计 10 + MCP 冒烟 8 + 双端构建。
+
 ## 7. 已知架构决策(为什么这么做)
 
 | 决策 | 取舍 |

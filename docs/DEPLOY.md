@@ -323,3 +323,27 @@ nginx `try_files` 没配 → 直接 404。配上 `try_files $uri $uri/ /index.ht
 - [ ] 限制数据库远程连接(`pg_hba.conf`)
 - [ ] 升级到 Node 20 LTS(不再用 16/18)
 - [ ] 启用 PostgreSQL SSL(`sslmode=require`)
+
+
+---
+
+## 11. AI 智能体(MCP)部署
+
+MCP Server 与主服务同机部署即可(stdio 由客户端拉起):
+
+1. 构建产物:`cd server && pnpm build`(含 dist/mcp/server.js);
+2. 建**专用最小权限账号**(如角色=会计,或自定义只读角色);
+3. 客户端(Claude Desktop / Cursor)按 `docs/MCP-GUIDE.md` 配置 MCP_USERNAME/MCP_PASSWORD;
+4. 自检:`MCP_USERNAME=xx MCP_PASSWORD=xx node scripts/mcp-smoke.mjs`。
+
+## 12. 生产部署 Checklist(上线前逐项打勾)
+
+- [ ] `.env`:JWT_SECRET ≥ 32 位随机(openssl rand -base64 48);数据库强口令;改默认端口策略
+- [ ] NODE_ENV=production(弱密钥将拒绝启动)
+- [ ] HTTPS 反向代理(Nginx/Caddy),HTTP 强跳
+- [ ] 数据库:`pg_dump` 定时备份(cron + 异地),备份文件做过恢复演练
+- [ ] 附件:`ATTACHMENT_DRIVER` 评估(多实例必须 S3/MinIO);磁盘纳入监控
+- [ ] 账号:管理员改默认密码;演示账号(README 中的)删除或改密;建 AI 专用账号
+- [ ] CORS:如无跨域需求保持默认同源;需要时 CORS_ORIGIN 显式白名单
+- [ ] 观测:访问日志落盘轮转;health 接入探活/告警(db.ms 持续 > 100ms 需关注)
+- [ ] 压测与容量:按凭证量评估(10 万级内现有索引足够;更大需评估报表查询)

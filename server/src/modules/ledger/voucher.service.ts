@@ -557,7 +557,7 @@ export class VoucherService {
     });
     // 红冲默认入账日期取账套当前期间(避免冻结/演示账套默认落在已结账期间被期间锁拒绝)
     const flushDate = date || toBizDateStr(await getBusinessToday(this.prisma, tenantId));
-    return this.create(
+    const voucher = await this.create(
       tenantId,
       userId,
       {
@@ -579,6 +579,17 @@ export class VoucherService {
       },
       { submit: false, isRed: true, sourceType: SOURCE_TYPES.RED_FLUSH, sourceId: id, redForVoucherId: id },
     );
+
+    // 业务联动:被红冲的是工资计提/发放凭证时,工资批次状态回退,防止批次与账面脱节
+    const batch = await this.prisma.payrollBatch.findFirst({
+      where: { tenantId, OR: [{ accrueVoucherId: id }, { payVoucherId: id }] },
+    });
+    if (batch && batch.accrueVoucherId === id) {
+      await this.prisma.payrollBatch.update({ where: { id: batch.id }, data: { status: 1, accrueVoucherId: null } });
+    } else if (batch && batch.payVoucherId === id) {
+      await this.prisma.payrollBatch.update({ where: { id: batch.id }, data: { status: 2, payVoucherId: null } });
+    }
+    return voucher;
   }
 
   /** 批量提交指定期间的草稿(辅助测试/初始化) */

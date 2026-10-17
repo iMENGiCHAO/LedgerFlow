@@ -111,6 +111,12 @@
 | POST | `/vouchers/:id/reverse` | `voucher:audit` | 红冲(已记账 → 生成反向凭证) |
 | POST | `/vouchers/:id/void` | `voucher:audit` | 作废(草稿/驳回) |
 | GET  | `/vouchers?format=xlsx` | `ledger:view` | 导出 Excel |
+| GET  | `/vouchers/templates` | `voucher:create` | 凭证模板列表 |
+| POST | `/vouchers/templates` | `voucher:create` | 保存模板(名称+分录) |
+| DELETE | `/vouchers/templates/:id` | `voucher:create` | 删除模板 |
+| GET  | `/vouchers/summaries` | `voucher:create` | 摘要联想(历史摘要 top100) |
+| POST | `/vouchers/import` | `voucher:create` | Excel 批量导入(7 列模板;连续同日合张、末级科目强校验、辅助核算按档案名匹配,部分成功+失败明细) |
+| GET  | `/vouchers/import-template` | `voucher:create` | 导入模板下载 |
 
 ### 4.2 期初
 
@@ -136,7 +142,7 @@
 
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
-| POST | `/vouchers/:id/attachments` | `voucher:create` | 上传(multipart,≤10MB) |
+| POST | `/vouchers/:id/attachments` | `voucher:create` | 上传(multipart,≤10MB,单凭证≤20 个) |
 | GET  | `/attachments/:id/download` | `ledger:view` | 下载(校验 owner 租户) |
 
 ---
@@ -151,6 +157,7 @@
 | GET  | `/reports/balance-summary?year=2026&month=2` | `report:view` | 科目余额表(总账口径) |
 | GET  | `/reports/detail-ledger?subjectId=...&from=1&to=2` | `report:view` | 明细分类账 |
 | GET  | `/reports/trial-balance?year=2026&month=2` | `report:view` | 试算平衡表 |
+| GET  | `/reports/cash-flow?year=2026&month=2` | `report:view` | 现金流量表(对方科目归集法;含期末期初勾稽、未归类明细;`format=xlsx` 导出) |
 
 ---
 
@@ -177,6 +184,12 @@
 | POST | `/invoices/import` | `invoice:manage` | CSV 批量导入 |
 | POST | `/invoices/:id/gen-bill` | `invoice:manage` | 销项发票生成应收单 |
 | GET  | `/invoices?format=xlsx` | `invoice:manage` | 导出 |
+
+### 6.2a 增值税申报测算
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | `/invoices/vat-declaration?year=2026&quarter=1` | `report:view` | 季度测算:按税率分组销项/进项 + 一般纳税人/小规模双口径(`format=xlsx` 三 Sheet 导出;仅供申报参考) |
 
 ### 6.3 资金 Fund
 
@@ -220,7 +233,20 @@
 ### 6.6 看板 Dashboard
 
 | 方法 | 路径 | 权限 | 说明 |
+|
+
+### 6.7 工资核算 Payroll
+
+| 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
+| GET  | `/payrolls?year=2026&month=2` | `payroll:manage` | 月度批次(按在册员工生成行,金额待录) |
+| POST | `/payrolls/:id/items` | `payroll:manage` | 批量保存工资行(实发自动计算;员工须为本账套在册) |
+| POST | `/payrolls/:id/accrue` | `payroll:manage` | 计提:借 560204(按部门拆分)/贷 2211,凭证提交待审;期间须未结且不早于当前业务期间 |
+| POST | `/payrolls/:id/pay` | `payroll:manage` | 发放:借 2211/贷 100201 实发 + 贷 2241 代扣(未缴暂挂) |
+
+> 红冲工资计提/发放凭证会自动把批次状态回退(已发放→已计提 / 已计提→编辑中),保证账实一致。
+
+---|---|---|---|
 | GET  | `/dashboard/summary` | 已登录 | 资金头寸/应收逾期/本月利润/趋势 + TOP5 + 待办 |
 
 ---
@@ -316,3 +342,17 @@ curl -X POST http://localhost:3100/api/v1/tenants/1/activate \
 | 0.5 | 2026-05 | 报表公式驱动 |
 | 0.3 | 2026-04 | 凭证引擎 R1-R15 全部硬约束 |
 | 0.1 | 2026-03 | 初版(基础 CRUD) |
+
+---
+
+## 9. AI 智能体(MCP)
+
+MCP Server 独立于 REST 运行(stdio),供 Claude / Cursor 等智能体调用,共 10 个工具
+(查询 9 个 + 记账 1 个),全部复用上表 API 与鉴权。接入方式见 `docs/MCP-GUIDE.md`。
+
+| 工具 | 对应 API | 说明 |
+|---|---|---|
+| list_periods / get_dashboard | `/periods` / `/dashboard/summary` | 期间与看板 |
+| get_balance_sheet / get_income_statement / get_cash_flow | `/reports/*` | 三大报表 |
+| query_subject_balances / query_vouchers / query_arap_aging / query_expense_claims | 余额表/凭证/账龄/报销 | 查询 |
+| create_voucher | `POST /vouchers` | 记账(草稿;部门辅助按名称匹配;借贷平衡/期间锁服务端校验) |

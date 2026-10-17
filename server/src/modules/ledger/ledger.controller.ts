@@ -423,6 +423,8 @@ export class LedgerController {
     const allowed = ['image/jpeg', 'image/png', 'application/pdf'];
     if (!allowed.includes(file.mimetype)) throw new BadRequestException('仅支持 jpg/png/pdf 附件');
     if (file.size > 10 * 1024 * 1024) throw new BadRequestException('附件不能超过10MB');
+    const attCount = await this.prisma.attachment.count({ where: { ownerType: 'voucher', ownerId: id } });
+    if (attCount >= 20) throw new BadRequestException('单张凭证附件已达上限(20 个)');
 
     const key = this.store.resolveKey(file.mimetype);
     await this.store.put(key, file.buffer);
