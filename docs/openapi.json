@@ -1,0 +1,134 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LedgerFlow API",
+    "version": "1.0.0",
+    "description": "中小企业财务管理系统 REST API。AI 智能体接入推荐使用 MCP(见 docs/MCP-GUIDE.md);本文件供 Function Calling / 代码生成生态使用。"
+  },
+  "servers": [{ "url": "http://127.0.0.1:3100/api/v1" }],
+  "components": {
+    "securitySchemes": { "bearerAuth": { "type": "http", "scheme": "bearer" } }
+  },
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "summary": "登录获取 JWT",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["username", "password"],
+                "properties": {
+                  "username": { "type": "string" },
+                  "password": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "accessToken / refreshToken / user / tenants" } }
+      }
+    },
+    "/periods": {
+      "get": { "summary": "会计期间列表", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "list" } } }
+    },
+    "/dashboard/summary": {
+      "get": { "summary": "经营看板", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "看板数据" } } }
+    },
+    "/reports/balance-sheet": {
+      "get": {
+        "summary": "资产负债表",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "periodId", "in": "query", "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "rows + balanceCheck" } }
+      }
+    },
+    "/reports/income": {
+      "get": {
+        "summary": "利润表",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "periodId", "in": "query", "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "rows" } }
+      }
+    },
+    "/reports/cash-flow": {
+      "get": {
+        "summary": "现金流量表",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "year", "in": "query", "required": true, "schema": { "type": "integer" } },
+          { "name": "month", "in": "query", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "rows + 勾稽校验" } }
+      }
+    },
+    "/reports/balance-summary": {
+      "get": {
+        "summary": "科目余额表",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "year", "in": "query", "required": true, "schema": { "type": "integer" } },
+          { "name": "month", "in": "query", "required": true, "schema": { "type": "integer" } },
+          { "name": "level", "in": "query", "schema": { "type": "integer", "description": "科目层级折叠" } }
+        ],
+        "responses": { "200": { "description": "list + totals" } }
+      }
+    },
+    "/vouchers": {
+      "get": {
+        "summary": "凭证列表",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer" } },
+          { "name": "pageSize", "in": "query", "schema": { "type": "integer" } },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "status", "in": "query", "schema": { "type": "integer", "description": "0草稿 1待审核 2已记账" } }
+        ],
+        "responses": { "200": { "description": "total / page / list" } }
+      },
+      "post": {
+        "summary": "创建凭证(草稿;借贷平衡/末级科目/期间锁服务端强校验)",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["date", "entries"],
+                "properties": {
+                  "date": { "type": "string", "format": "date" },
+                  "memo": { "type": "string" },
+                  "entries": {
+                    "type": "array",
+                    "minItems": 2,
+                    "items": {
+                      "type": "object",
+                      "required": ["summary", "subjectId", "debit", "credit"],
+                      "properties": {
+                        "summary": { "type": "string" },
+                        "subjectId": { "type": "integer" },
+                        "debit": { "type": "number" },
+                        "credit": { "type": "number" },
+                        "departmentId": { "type": "integer" },
+                        "partnerId": { "type": "integer" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "凭证(草稿,需审核记账)" } }
+      }
+    },
+    "/arap/aging": {
+      "get": { "summary": "应收账龄分析", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "list" } } }
+    },
+    "/expense-claims": {
+      "get": { "summary": "报销单列表", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "list" } } }
+    }
+  }
+}

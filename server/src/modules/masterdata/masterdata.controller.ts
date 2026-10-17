@@ -206,7 +206,7 @@ export class MasterdataController {
 
   // ===== 部门/项目/员工 =====
   @Get('departments')
-  @Perm('md:manage')
+  @Perm('md:manage', 'voucher:create', 'expense:create')
   async departments(@CurrentTid() tenantId: number, @Query('format') format: 'xlsx' | undefined, @Res({ passthrough: true }) res: Response) {
     if (format === 'xlsx') {
       const list = await this.svc.departmentsAll(tenantId);
